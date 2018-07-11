@@ -3,15 +3,15 @@ import numpy as np
 
 ### INITIALIZE (Fozard)
 vortex_length = vl = 10 # Length of lattice (micro m), square
-Lx, Ly, Lz = 10*vl, 10*vl, 100*vl # Length of Biofilm
-dt = 1/600 # min = 0.1 sec. Only one type of time step unlike Fozard
+Lx, Ly, Lz = 2*vl, 2*vl, 2*vl # Length of Biofilm
+dt = 1/60000 # min = 0.001 sec. Only one type of time step unlike Fozard
 max_mass_particle = 14700
 avg_mass_cell = 410
 density_cell = 290
 density_eps = 290
 
 max_volume_fraction_cell = 0.52
-diffusion_substrate = 40680
+diffusion_subst = 40680
 diffusion_qsm = diffusion_qsi = 33300
 steps_substrate = 12 #Ignored
 steps_qsm = steps_qsi = 10 #Ignored
@@ -22,7 +22,7 @@ max_mass_eps = density_eps/density_cell * max_mass_particle
 # Equation
 half_saturation = Ks = 1 # Value?
 max_substrate_uptake_rate = Vmax = 1 # Value?
-substrate_uptake_rate = Vmax * conc_subst_vortex / (Ks + conc_subst_vortex) * mass_cell
+#substrate_uptake_rate = Vmax * conc_subst_vortex / (Ks + conc_subst_vortex) * mass_cell
 
 
 
@@ -42,7 +42,7 @@ class Biofilm:
         for x in range(nx):
             for y in range(ny):
                 for z in range(nz):
-                    vortex_arr.append(Vortex(x, y, z, vortex_length))
+                    vortex_arr.append(Vortex(x, y, z))
         return vortex_arr
 
 
@@ -71,28 +71,48 @@ class Biofilm:
     def update(self):
         self.time_step += 1
         #Update all vortexes, which then also updates particles
-        for vortex in vortex_arr:
-            vortex.update()
+        for vortex in self.vortex_arr:
+            neigh = self.get_vortex_neighbours(vortex)
+            vortex.update(neigh)
 
 
 class Vortex:
     # Square compartments containing particles (Cells, EPS)
-    def __init__(self, x, y, z, particle_arr=[], eps_amount=0):
+    def __init__(self, x, y, z, particle_arr=[], eps_amount=0, conc_subst=0, conc_qsm=0, conc_qsi=0):
         self.x, self.y, self.z = x, y, z #position
         self.particle_arr = particle_arr
         self.eps_amount = eps_amount
-        self.conc_subst = 0 #substrate
-        self.conc_qsm = 0 #quorom sensing molecule
-        self.conc_qsi = 0 #quorom sensing inhibitor
+        self.conc_subst = self.cs1 = conc_subst #substrate
+        self.conc_qsm = self.cqsm1 = conc_qsm #quorom sensing molecule
+        self.conc_qsi = self.cqsi1 = conc_qsi #quorom sensing inhibitor
 
     def get_pos(self):
         return [self.x, self.y, self.z]
 
-    def update(self):
-        for particle in particle_arr:
+    def update(self, neighbours):
+        # Time step. Ignore production currently, to be fixed
+        # Creates variables cs1, cqsm1, cqsi1 which stores the new concentrations
+        prod_subst, prod_qsi, prod_qsm = 0, 0, 0
+
+        cs0, cqsm0, cqsi0 = self.cs1, self.cqsm1, self.cqsi1
+        cs_neigh, cqsm_neigh, cqsi_neigh = [], [], []
+
+        for vortex in neighbours:
+            print
+            cs_neigh.append(vortex.conc_subst)
+            cqsm_neigh.append(vortex.conc_qsm)
+            cqsi_neigh.append(vortex.conc_qsi)
+
+        cs1 = cs0 + dt*model_concentration(cs0, cs_neigh, diffusion_subst, prod_subst)
+        cqsm1 = cqsm0 + dt*model_concentration(cqsm0, cqsm_neigh, diffusion_qsm, prod_qsi)
+        cqsi1 = cqsi0 + dt*model_concentration(cqsi0, cqsi_neigh, diffusion_qsi, prod_qsm)
+        for particle in self.particle_arr:
             particle.update()
 
-
+        self.cs1 = cs1        
+        self.cqsm1 = cqsm1
+        self.cqsi1 = cqsi1
+        
 
 class Particle_Cell:
     def __init__(self, mass):
@@ -120,14 +140,13 @@ class Particle_EPS:
 
 ### MODELS (Time derivatives)
 
-def model_concentration(conc, conc_neigh_arr, production, diffusion_const):
-    # return derivative of concentration.
+def model_concentration(conc, conc_neigh_arr, diffusion_const, production = 0):
+    # return derivative of concentration. Temporarily production = 0
     # diffusion_const = diffusion_subst, diffusion_qsi, diffusion_qsm
     D = diffusion_const
     l = vortex_length
     f = production
     n = len(conc_neigh_arr)
-
     dcdt = D/l**2 * (sum(conc_neigh_arr) - n*conc) + production/l**3
     return dcdt
 
@@ -143,7 +162,20 @@ def model_particle_mass(Ymax, substrate_uptake_rate, maintenance_rate, mass_part
     return dMdt
 
 
-#x = Biofilm()
+bf = Biofilm()
+
+vortex = bf.vortex_arr[0]
+vortex.conc_subst = vortex.cs1 = 1000
+
+print("Before")
+for vortex in bf.vortex_arr:
+    print(vortex.conc_subst)
+bf.update()
+print("After")
+for vortex in bf.vortex_arr:
+    print(vortex.cs1)
+
+
 #y = x.get_vortex(2,3,4)
 #z = x.get_vortex_neighbours(y)
 #print(y.get_pos(),[r.get_pos() for r in z])
