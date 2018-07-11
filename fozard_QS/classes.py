@@ -1,9 +1,10 @@
 import numpy as np
+import matplotlib.pyplot as plt
 # A collection of all the classes currently.
 
 ### INITIALIZE (Fozard)
 vortex_length = vl = 10 # Length of lattice (micro m), square
-Lx, Ly, Lz = 2*vl, 2*vl, 2*vl # Length of Biofilm
+Lx, Ly, Lz = 20*vl, 20*vl, 1*vl # Length of Biofilm
 dt = 1/60000 # min = 0.001 sec. Only one type of time step unlike Fozard
 max_mass_particle = 14700
 avg_mass_cell = 410
@@ -31,6 +32,7 @@ class Biofilm:
     # Collection of vortexes of biofilm "lattice"
     
     def __init__(self):
+
         self.length = [Lx, Ly, Lz] # Total size of biofilm lattice
         self.vortex_arr = self.init_vortex() # Collection of vortexes
         self.time_step = 0
@@ -47,13 +49,13 @@ class Biofilm:
 
 
     def get_vortex(self, x, y, z):
-        # Inefficient.
         # Gets vortex from vortex_arr at pos = x, y, z
+        [nx, ny, nz] = [ int(self.length[i] / vortex_length) for i in range(3)]
         for vortex in self.vortex_arr:
             [vx, vy, vz] = vortex.get_pos()
             if x == vx and y == vy and z == vz:
                 return vortex
-        #print("Vortex at ", x, y, z, "not found")#For debug
+        #print("Vortex at ", x, y, z, "not found") # For debug
         return None
 
     def get_vortex_neighbours(self, vortex):
@@ -86,8 +88,10 @@ class Vortex:
         self.conc_qsm = self.cqsm1 = conc_qsm #quorom sensing molecule
         self.conc_qsi = self.cqsi1 = conc_qsi #quorom sensing inhibitor
 
+
     def get_pos(self):
         return [self.x, self.y, self.z]
+
 
     def update(self, neighbours):
         # Time step. Ignore production currently, to be fixed
@@ -95,10 +99,11 @@ class Vortex:
         prod_subst, prod_qsi, prod_qsm = 0, 0, 0
 
         cs0, cqsm0, cqsi0 = self.cs1, self.cqsm1, self.cqsi1
+        self.conc_subst, self.conc_qsm, self.conc_qsi = cs0, cqsm0, cqsi0
         cs_neigh, cqsm_neigh, cqsi_neigh = [], [], []
 
+
         for vortex in neighbours:
-            print
             cs_neigh.append(vortex.conc_subst)
             cqsm_neigh.append(vortex.conc_qsm)
             cqsi_neigh.append(vortex.conc_qsi)
@@ -113,6 +118,7 @@ class Vortex:
         self.cqsm1 = cqsm1
         self.cqsi1 = cqsi1
         
+
 
 class Particle_Cell:
     def __init__(self, mass):
@@ -162,20 +168,28 @@ def model_particle_mass(Ymax, substrate_uptake_rate, maintenance_rate, mass_part
     return dMdt
 
 
+
+
+### PLOT
+def plot2d_subst(biofilm):
+    Lx, Ly, Lz = biofilm.length
+    z_plane = np.zeros([int(Lx/vortex_length), int(Ly/vortex_length)])
+    for vortex in biofilm.vortex_arr:
+        if vortex.z == 0:
+            z_plane[vortex.x, vortex.y] = vortex.cs1
+    plt.imshow(z_plane)
+    plt.show()
+    
+
+
 bf = Biofilm()
 
-vortex = bf.vortex_arr[0]
+vortex = bf.vortex_arr[20*3 + 4]
 vortex.conc_subst = vortex.cs1 = 1000
 
-print("Before")
-for vortex in bf.vortex_arr:
-    print(vortex.conc_subst)
-bf.update()
-print("After")
-for vortex in bf.vortex_arr:
-    print(vortex.cs1)
 
+for i in range(100):
+    bf.update()
+    print(i)
+plot2d_subst(bf)
 
-#y = x.get_vortex(2,3,4)
-#z = x.get_vortex_neighbours(y)
-#print(y.get_pos(),[r.get_pos() for r in z])
