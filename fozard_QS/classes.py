@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 ### INITIALIZE (Fozard)
 vortex_length = vl = 10 # Length of lattice (micro m), square
-Lx, Ly, Lz = 20*vl, 20*vl, 1*vl # Length of Biofilm
+Lx, Ly, Lz = 20*vl, 10*vl, 1*vl # Length of Biofilm
 dt = 1/60000 # min = 0.001 sec. Only one type of time step unlike Fozard
 max_mass_particle = 14700
 avg_mass_cell = 410
@@ -41,9 +41,9 @@ class Biofilm:
     def init_vortex(self):
         vortex_arr = []
         [nx, ny, nz] = [ int(self.length[i] / vortex_length) for i in range(3)]
-        for x in range(nx):
+        for z in range(nz):
             for y in range(ny):
-                for z in range(nz):
+                for x in range(nx):
                     vortex_arr.append(Vortex(x, y, z))
         return vortex_arr
 
@@ -51,12 +51,11 @@ class Biofilm:
     def get_vortex(self, x, y, z):
         # Gets vortex from vortex_arr at pos = x, y, z
         [nx, ny, nz] = [ int(self.length[i] / vortex_length) for i in range(3)]
-        for vortex in self.vortex_arr:
-            [vx, vy, vz] = vortex.get_pos()
-            if x == vx and y == vy and z == vz:
-                return vortex
-        #print("Vortex at ", x, y, z, "not found") # For debug
+        if 0 <= x < nx and 0 <= y < ny and 0 <= z < nz:       
+            index = nx * ny * z + nx * y + x
+            return self.vortex_arr[index]
         return None
+
 
     def get_vortex_neighbours(self, vortex):
         # Neighbours when sides are touching, not when only corners
@@ -184,12 +183,11 @@ def plot2d_subst(biofilm):
 
 bf = Biofilm()
 
-vortex = bf.vortex_arr[20*3 + 4]
+vortex = bf.vortex_arr[44]
 vortex.conc_subst = vortex.cs1 = 1000
 
-
-for i in range(100):
+plot2d_subst(bf)
+for i in range(1000):
     bf.update()
-    print(i)
 plot2d_subst(bf)
 
