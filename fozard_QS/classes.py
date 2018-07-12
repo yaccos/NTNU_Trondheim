@@ -110,10 +110,20 @@ class Vortex:
         for particle in self.particle_arr:
             if isinstance(particle, Particle_Cell):
                 self.eps_amount += dt * (Zd * particle.num_down + Zu * particle.num_up)
-            
+                if particle.mass > max_mass_cell:
+                    randf = 0.4 + 0.2*np.random.random() # 0.4 - 0.6
+                    
+                    new_particle = Particle_Cell((1-ranf) * particle.mass)) 
+                    particle.set_mass(particle.mass * randf)
+
+                    for i in range(
+
+                    particle_arr.append(new_particle)
+
             v = substrate_uptake_rate = Vmax * conc_subst / (Ks + conc_subst) * mass
             particle.update(self.conc_subst, v)
             prod_subst -= v
+
 
         # If mass surpasses an amount, create particle from that mass
         if self.eps_amount > max_mass_eps:
@@ -142,12 +152,26 @@ class Particle_Cell:
         
     def update(self, conc_subst):
         # Model eating of substrate
-        self.mass += dt * model_cell_mass(conc_subst, self.mass)
-
+        self.set_mass(self.mass + dt * model_cell_mass(conc_subst, self.mass) )
 
     def get_cells(self):
         #Returns the number of cells in particle
         return self.num_down + self.num_up
+
+    def set_mass(self, mass):
+        # Creates down regulated cell automatically. Should be stochastic
+        self.mass = mass
+        while mass-avg_mass_cell > avg_mass_cell * self.get_cells(): 
+            self.num_down += 1
+        while mass+avg_mass_cell < avg_mass_cell * self.get_cells():
+            if self.num_down > 0:
+                self.num_down -= 1
+            elif self.num_up > 0:
+                self.num_up -= 1
+
+    def create_up(self):
+        self.num_down -= 1
+        self.num_up += 1
 
 
 
