@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import math
 # A collection of all the classes currently.
+
 
 ### INITIALIZE (Fozard)
 vortex_length = vl = 10 # Length of lattice (micro m), square
@@ -21,18 +23,20 @@ max_mass_eps = density_eps/density_cell * max_mass_particle
 
 
 # Equation
-half_saturation = Ks = 1 # Value?
-max_substrate_uptake_rate = Vmax = 1 # Value?
-#substrate_uptake_rate = Vmax * conc_subst_vortex / (Ks + conc_subst_vortex) * mass_cell
+half_saturation = Ks = 2.34e-3 # Value?
+max_substrate_uptake_rate = Vmax = 0.046 # Value?
+max_yield = 0.444 # Value?
+maintenance_rate = 6e-4
+
+Zd = 1e-6   # Down-regulated EPS production
+Zu = 1e-3   # Up-regulated EPS production
 
 
 
 ### CLASSES
 class Biofilm:
     # Collection of vortexes of biofilm "lattice"
-    
     def __init__(self):
-
         self.length = [Lx, Ly, Lz] # Total size of biofilm lattice
         self.vortex_arr = self.init_vortex() # Collection of vortexes
         self.time_step = 0
@@ -68,13 +72,15 @@ class Biofilm:
             if vortex != None:
                 neighbours.append( vortex )
         return neighbours
-    
+
+
     def update(self):
-        self.time_step += 1
         #Update all vortexes, which then also updates particles
+        self.time_step += 1
         for vortex in self.vortex_arr:
             neigh = self.get_vortex_neighbours(vortex)
             vortex.update(neigh)
+
 
 
 class Vortex:
@@ -95,42 +101,54 @@ class Vortex:
     def update(self, neighbours):
         # Time step. Ignore production currently, to be fixed
         # Creates variables cs1, cqsm1, cqsi1 which stores the new concentrations
-        prod_subst, prod_qsi, prod_qsm = 0, 0, 0
+        prod_subst = 0 # This should work
+        prod_qsi, prod_qsm = 0, 0, 0 #Not implemented yet
 
-        cs0, cqsm0, cqsi0 = self.cs1, self.cqsm1, self.cqsi1
-        self.conc_subst, self.conc_qsm, self.conc_qsi = cs0, cqsm0, cqsi0
+        self.conc_subst, self.conc_qsm, self.conc_qsi = cs0, cqsm0, cqsi0 = self.cs1, self.cqsm1, self.cqsi1
+
+        #Particle and prod_subst
+        for particle in self.particle_arr:
+            if isinstance(particle, Particle_Cell):
+                self.eps_amount += dt * (Zd * particle.num_down + Zu * particle.num_up)
+            
+            v = substrate_uptake_rate = Vmax * conc_subst / (Ks + conc_subst) * mass
+            particle.update(self.conc_subst, v)
+            prod_subst -= v
+
+        # If mass surpasses an amount, create particle from that mass
+        if self.eps_amount > max_mass_eps:
+            self.particle_arr.append( Particle_EPS(max_mass_eps) )
+            self.eps_amount -= max_mass_eps
+
+
+        # Neighbours and concentrations
         cs_neigh, cqsm_neigh, cqsi_neigh = [], [], []
-
-
         for vortex in neighbours:
             cs_neigh.append(vortex.conc_subst)
             cqsm_neigh.append(vortex.conc_qsm)
             cqsi_neigh.append(vortex.conc_qsi)
 
-        cs1 = cs0 + dt*model_concentration(cs0, cs_neigh, diffusion_subst, prod_subst)
-        cqsm1 = cqsm0 + dt*model_concentration(cqsm0, cqsm_neigh, diffusion_qsm, prod_qsi)
-        cqsi1 = cqsi0 + dt*model_concentration(cqsi0, cqsi_neigh, diffusion_qsi, prod_qsm)
-        for particle in self.particle_arr:
-            particle.update()
+        self.cs1 = cs0 + dt*model_concentration(cs0, cs_neigh, diffusion_subst, prod_subst)
+        self.cqsm1 = cqsm0 + dt*model_concentration(cqsm0, cqsm_neigh, diffusion_qsm, prod_qsi)
+        self.cqsi1 = cqsi0 + dt*model_concentration(cqsi0, cqsi_neigh, diffusion_qsi, prod_qsm)
 
-        self.cs1 = cs1        
-        self.cqsm1 = cqsm1
-        self.cqsi1 = cqsi1
-        
 
 
 class Particle_Cell:
     def __init__(self, mass):
         self.mass = mass #changes over time
-        self.num_down = math.ceil( mass / avg_mass) #Down-regulated cell
+        self.num_down = math.ceil( mass / avg_mass_cell) #Down-regulated cell
         self.num_up = 0 #Up regulated cell (produces more EPS)
         
-    def update(self):
-        return 0
+    def update(self, conc_subst):
+        # Model eating of substrate
+        self.mass += dt * model_cell_mass(conc_subst, self.mass)
+
 
     def get_cells(self):
         #Returns the number of cells in particle
         return self.num_down + self.num_up
+
 
 
 class Particle_EPS:
@@ -140,37 +158,38 @@ class Particle_EPS:
         return 0
 
     def update(self):
-        return 0
+        # No changes are made after creation
+        return 
+
 
 
 ### MODELS (Time derivatives)
 
 def model_concentration(conc, conc_neigh_arr, diffusion_const, production = 0):
-    # return derivative of concentration. Temporarily production = 0
+    # return derivative of concentration
     # diffusion_const = diffusion_subst, diffusion_qsi, diffusion_qsm
     D = diffusion_const
     l = vortex_length
     f = production
     n = len(conc_neigh_arr)
+
     dcdt = D/l**2 * (sum(conc_neigh_arr) - n*conc) + production/l**3
     return dcdt
 
 
-def model_particle_mass(Ymax, substrate_uptake_rate, maintenance_rate, mass_particle):
-    # Yield=ymax
+def model_cell_mass(conc_subst, mass, v):
     # Returns the derivative of particle mass
-    v = substrate_uptake_rate
     m = maintenance_rate
-    M = mass_particle
+    Y = max_yield
+    M = mass
 
-    dMdt = Ymax * (v - m*M)
+    dMdt = Y * (v - m*M)
     return dMdt
-
-
 
 
 ### PLOT
 def plot2d_subst(biofilm):
+    # Plots the concentration of substance at z=0 (plate)
     Lx, Ly, Lz = biofilm.length
     z_plane = np.zeros([int(Lx/vortex_length), int(Ly/vortex_length)])
     for vortex in biofilm.vortex_arr:
@@ -178,16 +197,30 @@ def plot2d_subst(biofilm):
             z_plane[vortex.x, vortex.y] = vortex.cs1
     plt.imshow(z_plane)
     plt.show()
-    
 
 
+def plot2d_cellmass(biofilm):
+    # Plots the concentration of substance at z=0 (plate)
+    Lx, Ly, Lz = biofilm.length
+    Nx, Ny = int(Lx/vortex_length), int(Ly/vortex_length)
+    z_plane = np.zeros([Nx, Ny])
+    for vortex in biofilm.vortex_arr:
+        if vortex.z == 0:
+            for particle in vortex.particle_arr:
+                z_plane[vortex.x, vortex.y] += particle.mass
+    plt.imshow(z_plane)
+    plt.show()
+ 
+### Tests
 bf = Biofilm()
 
 vortex = bf.vortex_arr[44]
-vortex.conc_subst = vortex.cs1 = 1000
+vortex.conc_subst = vortex.cs1 = 1
+vortex.particle_arr = [Particle_Cell(1)]
 
-plot2d_subst(bf)
-for i in range(1000):
+plot2d_cellmass(bf)
+for i in range(100):
     bf.update()
-plot2d_subst(bf)
+plot2d_cellmass(bf)
+print(vortex.particle_arr[0].mass)
 
