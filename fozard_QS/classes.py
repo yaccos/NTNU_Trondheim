@@ -4,16 +4,17 @@ import math
 # A collection of all the classes currently.
 
 
+N = int(30e3) # Number of steps
 ### INITIALIZE (Fozard)
-vortex_length = vl = 10 # Length of lattice (micro m), square
-Lx, Ly, Lz = 20*vl, 10*vl, 1*vl # Length of Biofilm
+vortex_length = vl = 17 # Length of lattice (micro m), square
+Lx, Ly, Lz = 3*vl, 3*vl, 1*vl # Length of Biofilm
 dt = 1/6000 # min = 0.01 sec. Only one type of time step unlike Fozard
 max_mass_cell = 14700
 avg_mass_cell = 410
 density_cell = 290
 density_eps = 290
 
-max_volume_fraction_cell = 0.52
+max_volume_fraction = 0.52
 diffusion_subst = 40680
 diffusion_qsm = diffusion_qsi = 33300
 steps_substrate = 12 #Ignored
@@ -21,15 +22,16 @@ steps_qsm = steps_qsi = 10 #Ignored
 
 max_mass_eps = density_eps/density_cell * max_mass_cell
 
-
-# Equation
-half_saturation = Ks = 2.34e-3 # Value?
-max_substrate_uptake_rate = Vmax = 0.046 # Value?
-max_yield = 0.444 # Value?
+half_saturation = Ks = 2.34e-3
+max_substrate_uptake_rate = Vmax = 0.046
+max_yield = 0.444
 maintenance_rate = 6e-4
 
 Zd = 1e-6   # Down-regulated EPS production
 Zu = 1e-3   # Up-regulated EPS production
+max_particles = density_cell * max_volume_fraction * vl**3 / max_mass_cell
+print("max particle", math.floor(max_particles))
+transfer_coefficient = 0.1
 
 
 
@@ -87,25 +89,41 @@ class Vortex:
     # Square compartments containing particles (Cells, EPS)
     def __init__(self, x, y, z, particle_arr=[], eps_amount=0, conc_subst=0, conc_qsm=0, conc_qsi=0):
         self.x, self.y, self.z = x, y, z #position
-        self.particle_arr = particle_arr
+        self.particle_arr = particle_arr.copy()
         self.eps_amount = eps_amount
         self.conc_subst = self.cs1 = conc_subst #substrate
         self.conc_qsm = self.cqsm1 = conc_qsm #quorom sensing molecule
         self.conc_qsi = self.cqsi1 = conc_qsi #quorom sensing inhibitor
+        N_p = len(particle_arr)
+        self.pressure = N_p / (max_particles - N_p )
 
 
     def get_pos(self):
         return [self.x, self.y, self.z]
 
+    def get_mass(self):
+        m = 0
+        for particle in self.particle_arr:
+            m += particle.mass
+        return m
 
     def update(self, neighbours):
         # Time step. Ignore production currently, to be fixed
         # Creates variables cs1, cqsm1, cqsi1 which stores the new concentrations
-        prod_subst = 0 # This should work
-        prod_qsi, prod_qsm = 0, 0 #Not implemented yet
 
-        self.conc_subst, self.conc_qsm, self.conc_qsi = cs0, cqsm0, cqsi0 = self.cs1, self.cqsm1, self.cqsi1
+        self.conc_subst, self.conc_qsm, self.conc_qsi = self.cs1, self.cqsm1, self.cqsi1
 
+        self._update_particles()
+        self._update_displacement(neighbours)
+        self._update_concentration(neighbours)
+
+    def add_particle(self, particle):
+        self.particle_arr.append(particle)
+        N_p = len(self.particle_arr)
+        self.pressure = N_p / (max_particles - N_p )
+
+
+    def _update_particles(self):
         #Particle and prod_subst
         for particle in self.particle_arr:
             if isinstance(particle, Particle_Cell):
@@ -113,7 +131,7 @@ class Vortex:
                 if particle.mass > max_mass_cell:
                     randf = 0.4 + 0.2*np.random.random() # 0.4 - 0.6
                     
-                    new_particle = Particle_Cell( (1-ranf) * particle.mass) 
+                    new_particle = Particle_Cell( (1-randf) * particle.mass) 
                     particle.set_mass(particle.mass * randf)
                     
                     # Distribute up cells between the particles (depending on num of cells)
@@ -125,11 +143,11 @@ class Vortex:
                         else:
                             new_particle.create_up()
 
-                    particle_arr.append(new_particle)
-
+                    self.add_particle(new_particle)
             v = substrate_uptake_rate = Vmax * self.conc_subst / (Ks + self.conc_subst) * particle.mass
+
             particle.update(self.conc_subst, v)
-            prod_subst -= v
+
 
 
         # If mass surpasses an amount, create particle from that mass
@@ -138,18 +156,62 @@ class Vortex:
             self.eps_amount -= max_mass_eps
 
 
+    def _update_displacement(self, neighbours):
+        # Displacement of particles (Pressure)
+        Np = len(self.particle_arr)
+        self.pressure = Np / (max_particles - Np)
+        mu = transfer_coefficient
+
+        delta_Np = 0; tot_diff_pressure = 0
+        for vortex in neighbours:
+            Npp = len(vortex.particle_arr)
+            if self.pressure > vortex.pressure and Np > Npp:
+                delta_Np += math.floor( mu* (self.pressure - vortex.pressure) * (Np - Npp))
+            tot_diff_pressure += self.pressure - vortex.pressure
+
+        probability = np.zeros(len(neighbours))
+        for i, vortex in enumerate(neighbours):
+            if self.pressure <= vortex.pressure:
+                probability[i] = 0
+            else:
+                probability[i] = (self.pressure - vortex.pressure) / tot_diff_pressure
+        # From discrete distribution to cumulative distribution
+        for i in range(len(probability) - 1):
+            probability[i+1] += probability[i] # [0.1, 0.2, 0.4, 0.3] -> [0.1, 0.3, 0.7, 1] 
+        
+        for _ in range(delta_Np):
+            if self.particle_arr: #if not empty
+                r = np.random.random()
+                for i, p in enumerate(probability):
+                    if r < p:
+                        index = np.random.randint(Np) # Random index to particles
+                        particle = self.particle_arr.pop(index) # Choose random particle
+                        Np -= 1
+                        neighbours[i].add_particle(particle)
+                        break
+
+
+    def _update_concentration(self, neighbours):
         # Neighbours and concentrations
+        cs0, cqsm0, cqsi0 = self.conc_subst, self.conc_qsm, self.conc_qsi  
+        prod_subst = 0
+        prod_qsi, prod_qsm = 0, 0 #Not implemented yet
+
         cs_neigh, cqsm_neigh, cqsi_neigh = [], [], []
+        
         for vortex in neighbours:
             cs_neigh.append(vortex.conc_subst)
             cqsm_neigh.append(vortex.conc_qsm)
             cqsi_neigh.append(vortex.conc_qsi)
+        
+        for particle in self.particle_arr:
+            v = substrate_uptake_rate = Vmax * self.conc_subst / (Ks + self.conc_subst) * particle.mass
+            prod_subst -= v
 
-        self.cs1 = cs0 + dt*model_concentration(cs0, cs_neigh, diffusion_subst, prod_subst)
-        self.cqsm1 = cqsm0 + dt*model_concentration(cqsm0, cqsm_neigh, diffusion_qsm, prod_qsi)
-        self.cqsi1 = cqsi0 + dt*model_concentration(cqsi0, cqsi_neigh, diffusion_qsi, prod_qsm)
-
-
+        self.cs1    = cs0    + dt*model_concentration(cs0,   cs_neigh,   diffusion_subst, prod_subst)
+        self.cqsm1  = cqsm0  + dt*model_concentration(cqsm0, cqsm_neigh, diffusion_qsm,   prod_qsi)
+        self.cqsi1  = cqsi0  + dt*model_concentration(cqsi0, cqsi_neigh, diffusion_qsi,   prod_qsm)
+ 
 
 class Particle_Cell:
     def __init__(self, mass):
@@ -168,7 +230,7 @@ class Particle_Cell:
     def set_mass(self, mass):
         # Creates down regulated cell automatically. Should be stochastic
         self.mass = mass
-        while mass-avg_mass_cell > avg_mass_cell * self.get_cells(): 
+        while mass - avg_mass_cell > avg_mass_cell * self.get_cells(): 
             self.num_down += 1
         while mass+avg_mass_cell < avg_mass_cell * self.get_cells():
             if self.num_down > 0:
@@ -238,21 +300,30 @@ def plot2d_cellmass(biofilm):
     for vortex in biofilm.vortex_arr:
         if vortex.z == 0:
             for particle in vortex.particle_arr:
-                z_plane[vortex.x, vortex.y] += particle.mass
+                z_plane[vortex.x, vortex.y] += 1
     plt.imshow(z_plane)
+    plt.colorbar()
     plt.show()
  
 ### Tests
 bf = Biofilm()
 
-vortex = bf.vortex_arr[44]
+vortex = bf.vortex_arr[4]
 vortex.conc_subst = vortex.cs1 = 100
-vortex.particle_arr = [Particle_Cell(4*avg_mass_cell)]
+vortex.particle_arr = [Particle_Cell(1000*avg_mass_cell) for _ in range(20)]
+n = bf.get_vortex_neighbours(vortex)
+n[0].add_particle(Particle_Cell(100*avg_mass_cell))
 
-plot2d_cellmass(bf)
-for i in range(100):
+bf.update()
+print(vortex.particle_arr[0].get_cells())
+loading_bar = [N * 0.05 * i for i in range(21)]
+for i in range(N):
     bf.update()
+    if i == loading_bar[0]:
+        loading_bar.pop(0)
+        print(int(i/N * 100), "%")
+    
+print(vortex.particle_arr[0].get_cells())
+print("time (min):", bf.time_step * dt )
 plot2d_cellmass(bf)
-plot2d_subst(bf)
-print(vortex.particle_arr[0].mass)
 
