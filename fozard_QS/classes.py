@@ -7,8 +7,8 @@ import math
 ### INITIALIZE (Fozard)
 vortex_length = vl = 10 # Length of lattice (micro m), square
 Lx, Ly, Lz = 20*vl, 10*vl, 1*vl # Length of Biofilm
-dt = 1/60000 # min = 0.001 sec. Only one type of time step unlike Fozard
-max_mass_particle = 14700
+dt = 1/6000 # min = 0.01 sec. Only one type of time step unlike Fozard
+max_mass_cell = 14700
 avg_mass_cell = 410
 density_cell = 290
 density_eps = 290
@@ -19,7 +19,7 @@ diffusion_qsm = diffusion_qsi = 33300
 steps_substrate = 12 #Ignored
 steps_qsm = steps_qsi = 10 #Ignored
 
-max_mass_eps = density_eps/density_cell * max_mass_particle
+max_mass_eps = density_eps/density_cell * max_mass_cell
 
 
 # Equation
@@ -102,7 +102,7 @@ class Vortex:
         # Time step. Ignore production currently, to be fixed
         # Creates variables cs1, cqsm1, cqsi1 which stores the new concentrations
         prod_subst = 0 # This should work
-        prod_qsi, prod_qsm = 0, 0, 0 #Not implemented yet
+        prod_qsi, prod_qsm = 0, 0 #Not implemented yet
 
         self.conc_subst, self.conc_qsm, self.conc_qsi = cs0, cqsm0, cqsi0 = self.cs1, self.cqsm1, self.cqsi1
 
@@ -113,14 +113,21 @@ class Vortex:
                 if particle.mass > max_mass_cell:
                     randf = 0.4 + 0.2*np.random.random() # 0.4 - 0.6
                     
-                    new_particle = Particle_Cell((1-ranf) * particle.mass)) 
+                    new_particle = Particle_Cell( (1-ranf) * particle.mass) 
                     particle.set_mass(particle.mass * randf)
-
-                    for i in range(
+                    
+                    # Distribute up cells between the particles (depending on num of cells)
+                    n = particle.num_up
+                    for _ in range(n):
+                        tot_num_down = particle.num_down + new_particle.num_down
+                        if particle.num_down / tot_num_down < np.random.random():
+                            particle.create_up()
+                        else:
+                            new_particle.create_up()
 
                     particle_arr.append(new_particle)
 
-            v = substrate_uptake_rate = Vmax * conc_subst / (Ks + conc_subst) * mass
+            v = substrate_uptake_rate = Vmax * self.conc_subst / (Ks + self.conc_subst) * particle.mass
             particle.update(self.conc_subst, v)
             prod_subst -= v
 
@@ -150,9 +157,9 @@ class Particle_Cell:
         self.num_down = math.ceil( mass / avg_mass_cell) #Down-regulated cell
         self.num_up = 0 #Up regulated cell (produces more EPS)
         
-    def update(self, conc_subst):
+    def update(self, conc_subst, v):
         # Model eating of substrate
-        self.set_mass(self.mass + dt * model_cell_mass(conc_subst, self.mass) )
+        self.set_mass(self.mass + dt * model_cell_mass(conc_subst, self.mass, v) )
 
     def get_cells(self):
         #Returns the number of cells in particle
@@ -239,12 +246,13 @@ def plot2d_cellmass(biofilm):
 bf = Biofilm()
 
 vortex = bf.vortex_arr[44]
-vortex.conc_subst = vortex.cs1 = 1
-vortex.particle_arr = [Particle_Cell(1)]
+vortex.conc_subst = vortex.cs1 = 100
+vortex.particle_arr = [Particle_Cell(4*avg_mass_cell)]
 
 plot2d_cellmass(bf)
 for i in range(100):
     bf.update()
 plot2d_cellmass(bf)
+plot2d_subst(bf)
 print(vortex.particle_arr[0].mass)
 
