@@ -4,11 +4,12 @@ import math
 # A collection of all the classes currently.
 
 
-N = int(30e3) # Number of steps
+N = int(1000) # Number of steps
+conc_bulk = 0.2
 ### INITIALIZE (Fozard)
 vortex_length = vl = 17 # Length of lattice (micro m), square
-Lx, Ly, Lz = 3*vl, 3*vl, 1*vl # Length of Biofilm
-dt = 1/6000 # min = 0.01 sec. Only one type of time step unlike Fozard
+Lx, Ly, Lz = 5*vl, 5*vl, 10*vl # Length of Biofilm
+dt = 1/600 # min = 0.01 sec. Only one type of time step unlike Fozard
 max_mass_cell = 14700
 avg_mass_cell = 410
 density_cell = 290
@@ -32,6 +33,12 @@ Zu = 1e-3   # Up-regulated EPS production
 max_particles = density_cell * max_volume_fraction * vl**3 / max_mass_cell
 print("max particle", math.floor(max_particles))
 transfer_coefficient = 0.1
+
+alpha = 1.33
+beta = 10
+gamma = 0.1
+Kq = 0 # Positive feedback (QSM production with QSM concentration)
+
 
 
 
@@ -57,10 +64,20 @@ class Biofilm:
     def get_vortex(self, x, y, z):
         # Gets vortex from vortex_arr at pos = x, y, z
         [nx, ny, nz] = [ int(self.length[i] / vortex_length) for i in range(3)]
-        if 0 <= x < nx and 0 <= y < ny and 0 <= z < nz:       
+        if 0 <= z < nz:
+            # Continuous boundary condition (x & y direction)
+            if x < 0:
+                return None#x = nx - 1
+            elif x == nx:
+                return None#x = 0
+            if y < 0:
+                return None#y = ny - 1
+            elif y == ny:
+                return None#y = 0
             index = nx * ny * z + nx * y + x
             return self.vortex_arr[index]
-        return None
+        else:
+            return None
 
 
     def get_vortex_neighbours(self, vortex):
@@ -114,6 +131,7 @@ class Vortex:
         self.conc_subst, self.conc_qsm, self.conc_qsi = self.cs1, self.cqsm1, self.cqsi1
 
         self._update_particles()
+        self._update_eps()
         self._update_displacement(neighbours)
         self._update_concentration(neighbours)
 
@@ -127,7 +145,6 @@ class Vortex:
         #Particle and prod_subst
         for particle in self.particle_arr:
             if isinstance(particle, Particle_Cell):
-                self.eps_amount += dt * (Zd * particle.num_down + Zu * particle.num_up)
                 if particle.mass > max_mass_cell:
                     randf = 0.4 + 0.2*np.random.random() # 0.4 - 0.6
                     
@@ -144,11 +161,20 @@ class Vortex:
                             new_particle.create_up()
 
                     self.add_particle(new_particle)
-            v = substrate_uptake_rate = Vmax * self.conc_subst / (Ks + self.conc_subst) * particle.mass
 
-            particle.update(self.conc_subst, v)
+                v = substrate_uptake_rate = Vmax * self.conc_subst / (Ks + self.conc_subst) * particle.mass
+                particle.update(self.conc_subst, v, self.conc_qsm, self.conc_qsi)
+            else: #isinstance(particle, EPS)
+                particle.update() 
 
 
+    def _update_eps(self):
+        #EPS production from bacteria
+        cell_arr = []
+        for particle in self.particle_arr:
+            if isinstance(particle, Particle_Cell):
+                cell_arr.append(particle)
+        self.eps_amount += dt * model_eps(cell_arr)
 
         # If mass surpasses an amount, create particle from that mass
         if self.eps_amount > max_mass_eps:
@@ -195,7 +221,8 @@ class Vortex:
         # Neighbours and concentrations
         cs0, cqsm0, cqsi0 = self.conc_subst, self.conc_qsm, self.conc_qsi  
         prod_subst = 0
-        prod_qsi, prod_qsm = 0, 0 #Not implemented yet
+        prod_qsm = 0
+        prod_qsi = 0 # No production from bacteria
 
         cs_neigh, cqsm_neigh, cqsi_neigh = [], [], []
         
@@ -205,8 +232,14 @@ class Vortex:
             cqsi_neigh.append(vortex.conc_qsi)
         
         for particle in self.particle_arr:
-            v = substrate_uptake_rate = Vmax * self.conc_subst / (Ks + self.conc_subst) * particle.mass
-            prod_subst -= v
+            if isinstance(particle, Particle_Cell): 
+                v = substrate_uptake_rate = Vmax * self.conc_subst / (Ks + self.conc_subst) * particle.mass
+                prod_subst -= v
+
+                u = particle.num_up; d = particle.num_down
+                if not cqsm0 == 0: 
+                    prod_qsm = Zu * u * cqsm0 / (Kq + cqsm0) + Zd * d
+
 
         self.cs1    = cs0    + dt*model_concentration(cs0,   cs_neigh,   diffusion_subst, prod_subst)
         self.cqsm1  = cqsm0  + dt*model_concentration(cqsm0, cqsm_neigh, diffusion_qsm,   prod_qsi)
@@ -219,16 +252,28 @@ class Particle_Cell:
         self.num_down = math.ceil( mass / avg_mass_cell) #Down-regulated cell
         self.num_up = 0 #Up regulated cell (produces more EPS)
         
-    def update(self, conc_subst, v):
-        # Model eating of substrate
+    def update(self, conc_subst, v, conc_qsm, conc_qsi):
+        # Model eating of substrate and switching states (stochastic)
         self.set_mass(self.mass + dt * model_cell_mass(conc_subst, self.mass, v) )
+
+        for _ in range(self.num_down):
+            randf = np.random.random()
+            if randf < dt * probability_down2up(conc_qsm, conc_qsi):
+                self.create_up()
+
+        for _ in range(self.num_up):
+            randf = np.random.random()
+            if randf < dt * probability_up2down(conc_qsm, conc_qsi):
+                self.create_down()
+
+
 
     def get_cells(self):
         #Returns the number of cells in particle
         return self.num_down + self.num_up
 
     def set_mass(self, mass):
-        # Creates down regulated cell automatically. Should be stochastic
+        # Creates down regulated cell automatically. 
         self.mass = mass
         while mass - avg_mass_cell > avg_mass_cell * self.get_cells(): 
             self.num_down += 1
@@ -242,6 +287,9 @@ class Particle_Cell:
         self.num_down -= 1
         self.num_up += 1
 
+    def create_down(self):
+        self.num_down += 1
+        self.num_up -= 1
 
 
 class Particle_EPS:
@@ -280,50 +328,140 @@ def model_cell_mass(conc_subst, mass, v):
     return dMdt
 
 
+def model_eps(cell_arr):
+    # Production of eps from cells (different prod for up/down given by Zd, Zu)
+    dEdt = 0
+    for cell in cell_arr:
+        d = cell.num_down
+        u = cell.num_up
+
+        dEdt += Zd * d + Zu * u
+    return dEdt
+
+
+def probability_down2up(conc_qsm, conc_qsi):
+    a = alpha
+    c = gamma
+    qsm = conc_qsm
+    qsi = conc_qsi
+
+    Qplus = alpha * qsm / (1 + c * (qsm + qsi) )
+    return Qplus
+
+
+def probability_up2down(conc_qsm, conc_qsi):
+    b = beta
+    c = gamma
+    qsm = conc_qsm
+    qsi = conc_qsi
+
+    Qminus = b * (1 + gamma*qsi) / (1 + gamma*(qsm + qsi) )
+
 ### PLOT
-def plot2d_subst(biofilm):
+def plot2d_subst(ax,biofilm):
     # Plots the concentration of substance at z=0 (plate)
     Lx, Ly, Lz = biofilm.length
     z_plane = np.zeros([int(Lx/vortex_length), int(Ly/vortex_length)])
     for vortex in biofilm.vortex_arr:
-        if vortex.z == 0:
-            z_plane[vortex.x, vortex.y] = vortex.cs1
-    plt.imshow(z_plane)
-    plt.show()
+        if vortex.z == 1:
+            z_plane[vortex.x, vortex.y] = vortex.conc_subst
+    print(vortex.cqsm1)
+    return ax.imshow(z_plane)
 
 
-def plot2d_cellmass(biofilm):
+def plot2d_cellmass(ax,biofilm):
     # Plots the concentration of substance at z=0 (plate)
     Lx, Ly, Lz = biofilm.length
     Nx, Ny = int(Lx/vortex_length), int(Ly/vortex_length)
     z_plane = np.zeros([Nx, Ny])
     for vortex in biofilm.vortex_arr:
         if vortex.z == 0:
-            for particle in vortex.particle_arr:
-                z_plane[vortex.x, vortex.y] += 1
-    plt.imshow(z_plane)
-    plt.colorbar()
-    plt.show()
+            z_plane[vortex.x, vortex.y] += vortex.get_mass()
+    return ax.imshow(z_plane)
+
  
+def plot3d(ax, biofilm):
+    min_val = 1
+    max_val = 1e-8
+    Nx = int(biofilm.length[0] / vortex_length)
+    Ny = int(biofilm.length[1] / vortex_length)
+    Nz = int(biofilm.length[2] / vortex_length)
+    array = [[[ None for z in range(Nz)] for y in range(Ny)] for x in range(Nz)]
+    for vortex in biofilm.vortex_arr:
+        x,y,z = vortex.x, vortex.y, vortex.z
+        array[x][y][z] = vortex.conc_subst
+        if max_val < vortex.conc_subst:
+            max_val = vortex.conc_subst
+        if min_val > vortex.conc_subst:
+            min_val = vortex.conc_subst
+    print("Minimum substrate concentration", min_val)
+    print("Maximum substrate concentration", max_val)
+    for x in range(Nx):
+        for y in range(Ny):
+            for z in range(Nz):
+                c = '%.1f' % ( 1 - array[x][y][z] / max_val)            
+                ax.scatter(x,y,z,color=c) 
+
+
+def bulk_vortex(biofilm):
+    Nz = int(biofilm.length[2] / vortex_length)
+    for vortex in bf.vortex_arr:
+        if vortex.z == Nz - 1:
+            vortex.conc_qsm = conc_bulk
+            vortex.particle_arr = []
+
+
+def time_step(N_times):
+    # LOOP
+    loading_bar = [N * 0.05 * i for i in range(21)]
+    for i in range(N):
+        bf.update()
+        if i == loading_bar[0]:
+            loading_bar.pop(0)
+            print(int(i/N * 100), "%")
+    
+
+
 ### Tests
 bf = Biofilm()
 
-vortex = bf.vortex_arr[4]
-vortex.conc_subst = vortex.cs1 = 100
-vortex.particle_arr = [Particle_Cell(1000*avg_mass_cell) for _ in range(20)]
-n = bf.get_vortex_neighbours(vortex)
-n[0].add_particle(Particle_Cell(100*avg_mass_cell))
+# INITIALIZE BIOFILM
+for vortex in bf.vortex_arr:
+    vortex.conc_subst = vortex.cs1 = conc_bulk
+    vortex.conc_qsm = 0.0
+    vortex.conc_qsi = 0.0
+    vortex.eps_amount = 0.0
+    if vortex.z == 0:
+        vortex.particle_arr = [Particle_Cell(400 + 400*np.random.random()) for _ in range(10) ]
 
-bf.update()
-print(vortex.particle_arr[0].get_cells())
-loading_bar = [N * 0.05 * i for i in range(21)]
-for i in range(N):
-    bf.update()
-    if i == loading_bar[0]:
-        loading_bar.pop(0)
-        print(int(i/N * 100), "%")
-    
-print(vortex.particle_arr[0].get_cells())
+# PLOT BEFOORE
+#fig, axes = plt.subplots(2, 2)
+#fig.subplots_adjust(top=0.92, left=0.07, right=0.97,
+                    #hspace=0.3, wspace=0.3)
+#((ax1, ax2), (ax3, ax4)) = axes  # unpack the axes
+#plot2d_cellmass(ax1,bf)
+#plot2d_subst(ax2,bf)
+
+time_step(N)
 print("time (min):", bf.time_step * dt )
-plot2d_cellmass(bf)
+
+# 3D plot:
+from mpl_toolkits.mplot3d import Axes3D
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+plot3d(ax, bf)
+plt.show()
+
+
+### Plot data
+#plot2d_cellmass(ax3,bf)
+#plot2d_subst(ax4,bf)
+#
+#ax1.set_title('cm0')
+#ax2.set_title('sub0')
+#ax3.set_title('cm1')
+#ax4.set_title('sub1')
+#
+#plt.show()
+
 
