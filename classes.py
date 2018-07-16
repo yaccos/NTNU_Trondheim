@@ -1,46 +1,12 @@
+# Standard Packages
 import numpy as np
 import matplotlib.pyplot as plt
 import math
+
+# Files
+from input_file_fozard import *
+
 # A collection of all the classes currently.
-
-
-N = int(600) # Number of steps
-conc_bulk = 0.2
-### INITIALIZE (Fozard)
-vortex_length = vl = 17 # Length of lattice (micro m), square
-Lx, Ly, Lz = 10*vl, 10*vl, 100*vl # Length of Biofilm
-dt = 2/6000 # min = 0.01 sec. Only one type of time step unlike Fozard
-max_mass_cell = 14700
-avg_mass_cell = 410
-density_cell = 290
-density_eps = 290
-
-max_volume_fraction = 0.52
-diffusion_subst = 40680
-diffusion_qsm = diffusion_qsi = 33300
-steps_substrate = 12 #Ignored
-steps_qsm = steps_qsi = 10 #Ignored
-
-max_mass_eps = density_eps/density_cell * max_mass_cell
-
-half_saturation = Ks = 2.34e-3
-max_substrate_uptake_rate = Vmax = 0.046
-max_yield = 0.444
-maintenance_rate = 6e-4
-
-Zed = 0   # Down-regulated EPS production
-Zeu = 1e-3   # Up-regulated EPS production
-Zqd = 8.3
-Zqu = 1230
-max_particles = density_cell * max_volume_fraction * vl**3 / max_mass_cell
-print("max particle", math.floor(max_particles))
-transfer_coefficient = 0.1
-
-alpha = 1.33
-beta = 10
-gamma = 0.001
-Kq = 10 # Positive feedback (QSM production with QSM concentration)
-
 
 
 
@@ -367,133 +333,15 @@ def probability_up2down(conc_qsm, conc_qsi):
     Qminus = b * (1 + gamma*qsi) / (1 + gamma*(qsm + qsi) )
     return Qminus
 
-### PLOT
-def plot2d_subst(ax,biofilm):
-    # Plots the concentration of substance at z=0 (plate)
-    Lx, Ly, Lz = biofilm.length
-    z_plane = np.zeros([int(Lx/vortex_length), int(Ly/vortex_length)])
-    for vortex in biofilm.vortex_arr:
-        if vortex.z == 1:
-            z_plane[vortex.x, vortex.y] = vortex.conc_subst
-    print(vortex.cqsm1)
-    return ax.imshow(z_plane)
 
-
-def plot2d_cellmass(ax,biofilm):
-    # Plots the concentration of substance at z=0 (plate)
-    Lx, Ly, Lz = biofilm.length
-    Nx, Ny = int(Lx/vortex_length), int(Ly/vortex_length)
-    z_plane = np.zeros([Nx, Ny])
-    for vortex in biofilm.vortex_arr:
-        if vortex.z == 0:
-            z_plane[vortex.x, vortex.y] += vortex.get_mass()
-    return ax.imshow(z_plane)
-
- 
-def plot3d(ax, biofilm):
-    min_val = 1
-    max_val = 1e-8
-    Nx = int(biofilm.length[0] / vortex_length)
-    Ny = int(biofilm.length[1] / vortex_length)
-    Nz = int(biofilm.length[2] / vortex_length)
-    array = [[[ None for z in range(Nz)] for y in range(Ny)] for x in range(Nz)]
-    for vortex in biofilm.vortex_arr:
-        x,y,z = vortex.x, vortex.y, vortex.z
-        array[x][y][z] = vortex.conc_subst
-        if max_val < vortex.conc_subst:
-            max_val = vortex.conc_subst
-        if min_val > vortex.conc_subst:
-            min_val = vortex.conc_subst
-    print("Minimum substrate concentration", min_val)
-    print("Maximum substrate concentration", max_val)
-    for x in range(Nx):
-        for y in range(Ny):
-            for z in range(Nz):
-                if array[x][y][z] < 0:
-                    c = '0.0'
-                c = '%.1f' % ( 1 - (array[x][y][z]-min_val) / (max_val-min_val))            
-                ax.scatter(x,y,z,color=c) 
-
-
-
-
-def time_step(N_times, bf):
-    # LOOP
-    loading_bar = [N * 0.01 * i for i in range(101)]
-    num_cell_list = []
-    time = []
+def time_step(N_times, biofilm):
+    # Does N time-steps. Includes a loading "bar".
+    loading_bar = [N_times * 0.01 * i for i in range(101)]
     for i in range(N):
-        bf.update()
-        if i == loading_bar[0]:
-            loading_bar.pop(0)
-            num_cell_list.append(0)
-            for v in bf.vortex_arr:
-                num_cell_list[-1] += v.get_mass()
-            num_cell_list[-1] /= avg_mass_cell
-            time.append(i*dt)
-            print(int(i/N * 100), "%")
-    plt.plot(time, num_cell_list)
-    plt.show()
+        biofilm.update()
+        if i >= loading_bar[0]:
+            x = loading_bar.pop(0)
+            print("%i %%" % x)
     
-
-
-### Tests
-bf = Biofilm()
-
-# INITIALIZE BIOFILM
-for vortex in bf.vortex_arr:
-    vortex.conc_subst = vortex.cs1 = conc_bulk
-    vortex.conc_qsm = 0.0
-    vortex.conc_qsi = 0.0
-    vortex.eps_amount = 0.0
-    if vortex.z == 0:
-        vortex.particle_arr = [Particle_Cell(4000 + 4000*np.random.random()) for _ in range(10) ]
-
-# PLOT BEFOORE
-fig, axes = plt.subplots(2, 2)
-fig.subplots_adjust(top=0.92, left=0.07, right=0.97,
-                    hspace=0.3, wspace=0.3)
-((ax1, ax2), (ax3, ax4)) = axes  # unpack the axes
-plot2d_cellmass(ax3,bf)
-plot2d_subst(ax4,bf)
-#
-#ax1.set_title('cm0')
-#ax2.set_title('sub0')
-#ax3.set_title('cm1')
-#ax4.set_title('sub1')
-#
-plt.show()
-
-
-
-time_step(N, bf)
-print("time (min):", bf.time_step * dt )
-
-# 3D plot:
-from mpl_toolkits.mplot3d import Axes3D
-fig = plt.figure()
-ax = fig.add_subplot(111, projection='3d')
-plot3d(ax, bf)
-plt.show()
-
-### Plot data
-fig, axes = plt.subplots(2, 2)
-fig.subplots_adjust(top=0.92, left=0.07, right=0.97,
-                    hspace=0.3, wspace=0.3)
-((ax1, ax2), (ax3, ax4)) = axes  # unpack the axes
-plot2d_cellmass(ax3,bf)
-plot2d_subst(ax4,bf)
-#
-#ax1.set_title('cm0')
-#ax2.set_title('sub0')
-#ax3.set_title('cm1')
-#ax4.set_title('sub1')
-#
-plt.show()
-
-for vortex in bf.vortex_arr:
-    for particle in vortex.particle_arr:
-        if isinstance(particle, Particle_Cell):
-            print("Pos:", vortex.x, vortex.y, vortex.z, "Cells:", particle.get_cells(), "Up:", particle.num_up )
 
 
