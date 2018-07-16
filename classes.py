@@ -2,6 +2,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import math
+from scipy.integrate import odeint
 
 # Files
 from input_file_fozard import *
@@ -25,7 +26,7 @@ class Biofilm:
         for z in range(nz):
             for y in range(ny):
                 for x in range(nx):
-                    vortex_arr.append(Vortex(x, y, z))
+                    vortex_arr.append(Vortex(x, y, z, conc_subst = conc_bulk))
         return vortex_arr
 
 
@@ -75,7 +76,7 @@ class Biofilm:
             if vortex.z == Nz - 1:
                 vortex.conc_subst = conc_bulk
                 vortex.particle_arr = []
-
+                vortex.pressure = 0
 
 class Vortex:
     # Square compartments containing particles (Cells, EPS)
@@ -86,8 +87,8 @@ class Vortex:
         self.conc_subst = self.cs1 = conc_subst #substrate
         self.conc_qsm = self.cqsm1 = conc_qsm #quorom sensing molecule
         self.conc_qsi = self.cqsi1 = conc_qsi #quorom sensing inhibitor
-        N_p = len(particle_arr)
-        self.pressure = N_p / (max_particles - N_p )
+        self.N_p = len(particle_arr)
+        self.pressure = self.N_p / (max_particles - self.N_p )
 
 
     def get_pos(self):
@@ -215,10 +216,18 @@ class Vortex:
                 if not cqsm0 == 0: 
                     prod_qsm = Zqu * u * cqsm0 / (Kq + cqsm0) + Zqd * d
 
+        t = (0, dt)
+        # self.cs1    = cs0    + dt*model_concentration(cs0,   cs_neigh,   diffusion_subst, prod_subst)
+        
 
-        self.cs1    = cs0    + dt*model_concentration(cs0,   cs_neigh,   diffusion_subst, prod_subst)
-        self.cqsm1  = cqsm0  + dt*model_concentration(cqsm0, cqsm_neigh, diffusion_qsm,   prod_qsi)
-        self.cqsi1  = cqsi0  + dt*model_concentration(cqsi0, cqsi_neigh, diffusion_qsi,   prod_qsm)
+        
+        arr = odeint(model_concentration, cs0, t, args=(cs_neigh,diffusion_subst, prod_subst) ) 
+        self.cs1 = arr[1][0]
+        arr =odeint(model_concentration, cqsm0, t, args=(cs_neigh,diffusion_qsm, prod_qsm) ) 
+        self.cqsm1 = arr[1][0]
+        arr =odeint(model_concentration, cqsi0, t, args=(cs_neigh,diffusion_qsi, prod_qsi) ) 
+        self.cqsi1 = arr[1][0]
+        
  
 
 class Particle_Cell:
@@ -281,7 +290,7 @@ class Particle_EPS:
 
 ### MODELS (Time derivatives)
 
-def model_concentration(conc, conc_neigh_arr, diffusion_const, production = 0):
+def model_concentration(conc, t, conc_neigh_arr, diffusion_const, production = 0):
     # return derivative of concentration
     # diffusion_const = diffusion_subst, diffusion_qsi, diffusion_qsm
     D = diffusion_const
@@ -336,12 +345,21 @@ def probability_up2down(conc_qsm, conc_qsi):
 
 def time_step(N_times, biofilm):
     # Does N time-steps. Includes a loading "bar".
-    loading_bar = [N_times * 0.01 * i for i in range(101)]
-    for i in range(N):
+    loading_bar = [j for j in range(110)]
+    for i in range(N_times):
         biofilm.update()
-        if i >= loading_bar[0]:
+        if i*100.0/N_times >= loading_bar[0]:
             x = loading_bar.pop(0)
-            print("%i %%" % x)
+            print("%i %%" % x, end='\t\t')
+            estimate_time(biofilm, N_times-i)
+
+from time import time
+def estimate_time(bf, N):
+    # Calculate estimated time (using 1 iterations)
+    start_time = time()
+    bf.update()
+    est_time = N * (time() - start_time)
+    print("Estimated time left: %.2f h = %.0f min" % (est_time/3600, est_time/60)  )
     
 
 

@@ -1,30 +1,29 @@
 from input_file_fozard import *
 from print_file import print_fozard
-from classes import Biofilm, Vortex, Particle_Cell, Particle_EPS
-from np.random import random
+import classes
+from numpy.random import random
+from time import time
+import datetime
+now = datetime.datetime.now()
 
-print_fozard()
+    
+    
 
-### Tests
-bf = Biofilm()
-
-
-
-def fozard_init():
-    return
-
-
-
-# INITIALIZE BIOFILM
+### INITIALIZE BIOFILM
+bf = classes.Biofilm()
 for vortex in bf.vortex_arr:
-    vortex.conc_subst = vortex.cs1 = conc_bulk
-    vortex.conc_qsm = 0.0
-    vortex.conc_qsi = 0.0
-    vortex.eps_amount = 0.0
     if vortex.z == 0: # 1-2 cells in 10 particles per vortex
-        vortex.particle_arr = [Particle_Cell(400 + 400*random()) for _ in range(10) ]
+        vortex.particle_arr = [classes.Particle_Cell(400 + 400*random()) for _ in range(10) ]
 
-time_step(N, bf)
+print_fozard(bf, "data/before_small.dat", 0)
+print("Start-time:", now.strftime("%Y-%m-%d %H:%M"))
 
-print("time (min):", bf.time_step * dt )
+### CALCULATE N STEPS
+start_time = time()
+classes.time_step(N, bf)
+delta_time = time() - start_time
 
+# print
+print("Model time (min): %.2f" % (bf.time_step * dt) )
+print("Used time(min): %.2f" % (delta_time/60) )
+print_fozard(bf, "data/small.dat", delta_time)
