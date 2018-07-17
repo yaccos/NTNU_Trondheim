@@ -1,9 +1,11 @@
+
+
 ### SHORT
-final_time = 4 * 60.0 # minutes
+final_time = 14 * 60.0 # minutes
 conc_bulk = 0.2
 
 ### LONG
-dt = 5.0/60 # min = 05 sec [5 sec]
+dt = 0.5/60 # min = 0.5 sec [5 sec]
 N = int(final_time / dt)  # Number of steps
 
 vortex_length = vl = 17.0 # Length of lattice (micro m), square

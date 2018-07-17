@@ -3,7 +3,10 @@ import classes
 import datetime
 now = datetime.datetime.now()
 
-def print_fozard(biofilm, filename, delta_time):
+
+## Functions which prints data to file
+
+def print_fozard(filename, delta_time):
     fi = open(filename, "w")
 
 
@@ -17,12 +20,14 @@ def print_fozard(biofilm, filename, delta_time):
     print("Box size: %i, %i, %i" % (Lx/vl, Ly/vl, Lz/vl) ,file=fi)
     print("Side length: %i" % vl,file=fi)
     print("Positive feedback Kq: %i" % Kq,file=fi)
-    
-    print("\nOUTPUT",file=fi)
+    fi.close
+
+def print_output(filename, biofilm):
+    dat = open(filename, "w")
     # xyz, cs, cqsm, cqsi
     for v in biofilm.vortex_arr:
-       print(v.x, v.y, v.z, "%.0f" % v.get_mass(), v.eps_amount, v.conc_subst, v.conc_qsm, v.conc_qsi,file=fi)
+       print(v.x, v.y, v.z, "%.0f" % v.get_mass/avg_mass_cell, v.eps_amount, v.conc_subst, v.conc_qsm, v.conc_qsi,file=dat)
 
-    fi.close()
+    dat.close()
 
 

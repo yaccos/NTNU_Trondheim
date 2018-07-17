@@ -20,12 +20,18 @@ class Biofilm:
         self.time_step = 0
 
 
+    def get_box_size(self):
+        # Returns the number of boxes in each direction [Nx, Ny, Nz]
+        return [int(self.length[i] / vortex_length) for i in range(3) ]
+
+
     def init_vortex(self):
+        # Creates vortex at every xyz with substrate concentration of the bulk liquid
+        [Nx, Ny, Nz] = [ int(self.length[i] / vortex_length) for i in range(3)]
         vortex_arr = []
-        [nx, ny, nz] = [ int(self.length[i] / vortex_length) for i in range(3)]
-        for z in range(nz):
-            for y in range(ny):
-                for x in range(nx):
+        for z in range(Nz):
+            for y in range(Ny):
+                for x in range(Nx):
                     vortex_arr.append(Vortex(x, y, z, conc_subst = conc_bulk))
         return vortex_arr
 
@@ -71,7 +77,7 @@ class Biofilm:
         self.bulk_vortex()
 
     def bulk_vortex(self):
-        Nz = int(self.length[2] / vortex_length)
+        [Nx, Ny, Nz] = self.get_box_size()
         for vortex in self.vortex_arr:
             if vortex.z == Nz - 1:
                 vortex.conc_subst = conc_bulk
@@ -101,9 +107,9 @@ class Vortex:
         return m
 
     def update(self, neighbours):
-        # Time step. Ignore production currently, to be fixed
+        # Time step.
         # Creates variables cs1, cqsm1, cqsi1 which stores the new concentrations
-
+        # Is the concentration before/after correctly handled?
         self.conc_subst, self.conc_qsm, self.conc_qsi = self.cs1, self.cqsm1, self.cqsi1
 
         self._update_particles()
@@ -113,8 +119,8 @@ class Vortex:
 
     def add_particle(self, particle):
         self.particle_arr.append(particle)
-        N_p = len(self.particle_arr)
-        self.pressure = N_p / (max_particles - N_p )
+        self.N_p = len(self.particle_arr)
+        self.pressure = self.N_p / (max_particles - self.N_p )
 
 
     def _update_particles(self):
@@ -128,10 +134,13 @@ class Vortex:
                     particle.set_mass(particle.mass * randf)
                     
                     # Distribute up cells between the particles (depending on num of cells)
-                    n = particle.num_up
-                    for _ in range(n):
-                        tot_num_down = particle.num_down + new_particle.num_down
-                        if particle.num_down / tot_num_down < np.random.random():
+                    u = particle.num_up; d = particle.num_down
+                    for _ in range(u):
+                        if d == 0:
+                            break
+
+                        tot_num_down = d + new_particle.num_down
+                        if d / tot_num_down < np.random.random():
                             particle.create_up()
                         else:
                             new_particle.create_up()
@@ -177,6 +186,7 @@ class Vortex:
                 probability[i] = 0
             else:
                 probability[i] = (self.pressure - vortex.pressure) / tot_diff_pressure
+
         # From discrete distribution to cumulative distribution
         for i in range(len(probability) - 1):
             probability[i+1] += probability[i] # [0.1, 0.2, 0.4, 0.3] -> [0.1, 0.3, 0.7, 1] 
@@ -185,7 +195,7 @@ class Vortex:
             if self.particle_arr: #if not empty
                 r = np.random.random()
                 for i, p in enumerate(probability):
-                    if r < p:
+                    if r <= p:
                         index = np.random.randint(Np) # Random index to particles
                         particle = self.particle_arr.pop(index) # Choose random particle
                         Np -= 1
@@ -213,8 +223,7 @@ class Vortex:
                 prod_subst -= v
 
                 u = particle.num_up; d = particle.num_down
-                if not cqsm0 == 0: 
-                    prod_qsm = Zqu * u * cqsm0 / (Kq + cqsm0) + Zqd * d
+                prod_qsm = Zqu * u * cqsm0 / (Kq + cqsm0) + Zqd * d
 
         t = (0, dt)
         # self.cs1    = cs0    + dt*model_concentration(cs0,   cs_neigh,   diffusion_subst, prod_subst)
@@ -223,9 +232,9 @@ class Vortex:
         
         arr = odeint(model_concentration, cs0, t, args=(cs_neigh,diffusion_subst, prod_subst) ) 
         self.cs1 = arr[1][0]
-        arr =odeint(model_concentration, cqsm0, t, args=(cs_neigh,diffusion_qsm, prod_qsm) ) 
+        arr =odeint(model_concentration, cqsm0, t, args=(cqsm_neigh,diffusion_qsm, prod_qsm) ) 
         self.cqsm1 = arr[1][0]
-        arr =odeint(model_concentration, cqsi0, t, args=(cs_neigh,diffusion_qsi, prod_qsi) ) 
+        arr =odeint(model_concentration, cqsi0, t, args=(cqsi_neigh,diffusion_qsi, prod_qsi) ) 
         self.cqsi1 = arr[1][0]
         
  
@@ -277,7 +286,6 @@ class Particle_Cell:
 
 
 class Particle_EPS:
-    # Not implemented
     def __init__(self, mass):
         self.mass = mass
         return 0
@@ -290,7 +298,7 @@ class Particle_EPS:
 
 ### MODELS (Time derivatives)
 
-def model_concentration(conc, t, conc_neigh_arr, diffusion_const, production = 0):
+def model_concentration(conc, t, conc_neigh_arr, diffusion_const, production=0):
     # return derivative of concentration
     # diffusion_const = diffusion_subst, diffusion_qsi, diffusion_qsm
     D = diffusion_const
@@ -342,7 +350,9 @@ def probability_up2down(conc_qsm, conc_qsi):
     Qminus = b * (1 + gamma*qsi) / (1 + gamma*(qsm + qsi) )
     return Qminus
 
+### OTHER
 
+import print_file
 def time_step(N_times, biofilm):
     # Does N time-steps. Includes a loading "bar".
     loading_bar = [j for j in range(110)]
@@ -352,6 +362,10 @@ def time_step(N_times, biofilm):
             x = loading_bar.pop(0)
             print("%i %%" % x, end='\t\t')
             estimate_time(biofilm, N_times-i)
+            # Every 10% print to a file
+            if int(x) % 10 == 0:
+                print_file.print_output("temp.dat", biofilm)
+
 
 from time import time
 def estimate_time(bf, N):
@@ -359,7 +373,7 @@ def estimate_time(bf, N):
     start_time = time()
     bf.update()
     est_time = N * (time() - start_time)
-    print("Estimated time left: %.2f h = %.0f min" % (est_time/3600, est_time/60)  )
-    
-
+    hour = int(est_time/3600)
+    minute = int(est_time/60 - hour*60) 
+    print("ETA: %i h  %i min" % (hour, minute) )
 
