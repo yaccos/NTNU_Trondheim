@@ -204,19 +204,20 @@ class Vortex:
 
 
     def _update_concentration(self, neighbours):
-        # Neighbours and concentrations
+        # Initialize
         cs0, cqsm0, cqsi0 = self.conc_subst, self.conc_qsm, self.conc_qsi  
         prod_subst = 0
         prod_qsm = 0
         prod_qsi = 0 # No production from bacteria
-
-        cs_neigh, cqsm_neigh, cqsi_neigh = [], [], []
         
+        # Neighbours 
+        cs_neigh, cqsm_neigh, cqsi_neigh = [], [], []
         for vortex in neighbours:
             cs_neigh.append(vortex.conc_subst)
             cqsm_neigh.append(vortex.conc_qsm)
             cqsi_neigh.append(vortex.conc_qsi)
         
+        # Production
         for particle in self.particle_arr:
             if isinstance(particle, Particle_Cell): 
                 v = substrate_uptake_rate = Vmax * self.conc_subst / (Ks + self.conc_subst) * particle.mass
@@ -225,10 +226,8 @@ class Vortex:
                 u = particle.num_up; d = particle.num_down
                 prod_qsm = Zqu * u * cqsm0 / (Kq + cqsm0) + Zqd * d
 
+        # Time step
         t = (0, dt)
-        # self.cs1    = cs0    + dt*model_concentration(cs0,   cs_neigh,   diffusion_subst, prod_subst)
-        
-
         
         arr = odeint(model_concentration, cs0, t, args=(cs_neigh,diffusion_subst, prod_subst) ) 
         self.cs1 = arr[1][0]
@@ -248,15 +247,17 @@ class Particle_Cell:
     def update(self, conc_subst, v, conc_qsm, conc_qsi):
         # Model eating of substrate and switching states (stochastic)
         self.set_mass(self.mass + dt * model_cell_mass(conc_subst, self.mass, v) )
-
+        pd2u = probability_down2up(conc_qsm, conc_qsi)
+        pu2d = probability_up2down(conc_qsm, conc_qsi) 
+        
         for _ in range(self.num_down):
             randf = np.random.random()
-            if randf < dt * probability_down2up(conc_qsm, conc_qsi):
+            if randf < dt * pd2u:
                 self.create_up()
 
         for _ in range(self.num_up):
             randf = np.random.random()
-            if randf < dt * probability_up2down(conc_qsm, conc_qsi):
+            if randf < dt * pu2d:
                 self.create_down()
 
 
@@ -364,7 +365,7 @@ def time_step(N_times, biofilm):
             estimate_time(biofilm, N_times-i)
             # Every 10% print to a file
             if int(x) % 10 == 0:
-                print_file.print_output("temp.dat", biofilm)
+                print_file.print_output("temporary.dat", biofilm)
 
 
 from time import time

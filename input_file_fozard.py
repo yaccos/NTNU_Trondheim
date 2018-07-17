@@ -1,7 +1,5 @@
-
-
 ### SHORT
-final_time = 14 * 60.0 # minutes
+final_time = 7 * 60.0 # minutes
 conc_bulk = 0.2
 
 ### LONG

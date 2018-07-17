@@ -25,8 +25,9 @@ def print_fozard(filename, delta_time):
 def print_output(filename, biofilm):
     dat = open(filename, "w")
     # xyz, cs, cqsm, cqsi
+    print("x y z mass/avg_mass_cell EPS subst qsm qsi",file=dat)
     for v in biofilm.vortex_arr:
-       print(v.x, v.y, v.z, "%.0f" % v.get_mass/avg_mass_cell, v.eps_amount, v.conc_subst, v.conc_qsm, v.conc_qsi,file=dat)
+       print(v.x, v.y, v.z, "%.0f" % (v.get_mass()/avg_mass_cell), v.eps_amount, v.conc_subst, v.conc_qsm, v.conc_qsi,file=dat)
 
     dat.close()
 
