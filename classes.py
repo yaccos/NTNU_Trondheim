@@ -1,5 +1,6 @@
 # Standard Packages
 import numpy as np
+from numpy.random import random
 import matplotlib.pyplot as plt
 import math
 from scipy.integrate import odeint
@@ -18,6 +19,7 @@ from input_file import *
 ### CLASSES
 class Biofilm:
     # Collection of vortexes of biofilm "lattice"
+    # TODO Concentration array instead of Vortexes
     def __init__(self):
         self.length = [Lx, Ly, Lz] # Total size of biofilm lattice
         self.vortex_arr = self._init_vortex() # Collection of vortexes in 1D list
@@ -100,7 +102,18 @@ class Vortex:
     # Square compartments containing particles (Cells, EPS)
     def __init__(self, x, y, z, particle_arr=[], eps_amount=0, conc_subst=0, conc_qsm=0):
         self.x, self.y, self.z = x, y, z #position
+
+        #TODO: From particle_arr to eps & cell array
         self.particle_arr = particle_arr.copy()
+        
+
+        self.eps_mass_arr = []
+        
+        # Same index refers to same particle
+        self.cell_mass_arr = []
+        self.cell_up_arr = []
+        self.cell_down_arr = []
+
         self.eps_amount = eps_amount
         self.conc_subst = self.cs1 = conc_subst #substrate
         self.conc_qsm = self.cqsm1 = conc_qsm #quorom sensing molecule
@@ -147,7 +160,7 @@ class Vortex:
         for particle in self.particle_arr:
             if isinstance(particle, Particle_Cell):
                 if particle.mass > max_mass_cell:
-                    randf = 0.4 + 0.2*np.random.random() # 0.4 - 0.6
+                    randf = 0.4 + 0.2* random() # 0.4 - 0.6
                     
                     new_particle = Particle_Cell( (1-randf) * particle.mass) 
                     particle.set_mass(particle.mass * randf)
@@ -159,7 +172,7 @@ class Vortex:
                             break
 
                         tot_num_down = d + new_particle.num_down
-                        if d / tot_num_down < np.random.random():
+                        if d / tot_num_down < random():
                             particle.create_up()
                         else:
                             new_particle.create_up()
@@ -212,7 +225,7 @@ class Vortex:
         
         for _ in range(delta_Np):
             if self.particle_arr: #if not empty
-                r = np.random.random()
+                r = random()
                 for i, p in enumerate(probability):
                     if r <= p:
                         index = np.random.randint(Np) # Random index to particles
@@ -255,26 +268,29 @@ class Vortex:
 
 class Particle_Cell:
     def __init__(self, mass):
-        self.mass = mass #changes over time
+        self.mass = mass #changes over time, use set_mass(..)!
         self.num_down = math.ceil( mass / avg_mass_cell) #Down-regulated cell
         self.num_up = 0 #Up regulated cell (produces more EPS)
         
     def update(self, conc_subst, v, conc_qsm):
         # Model eating of substrate and switching states (stochastic)
-        self.set_mass(self.mass + dt * model_cell_mass(conc_subst, self.mass, v) )
+        _update_mass(conc_subst, v)
         pd2u = probability_down2up(conc_qsm)
         pu2d = probability_up2down(conc_qsm) 
         
         for _ in range(self.num_down):
-            randf = np.random.random()
-            if randf < dt * pd2u:
+            if random() < dt * pd2u:
                 self.create_up()
 
         for _ in range(self.num_up):
-            randf = np.random.random()
-            if randf < dt * pu2d:
+            if random() < dt * pu2d:
                 self.create_down()
 
+
+    def _update_mass(self, conc_subst, v):
+        # Updates mass according to model
+        new_mass = self.mass + dt * model_cell_mass(conc_subst, self.mass, v) 
+        self.set_mass(new_mass)
 
 
     def get_cells(self):
@@ -282,7 +298,7 @@ class Particle_Cell:
         return self.num_down + self.num_up
 
     def set_mass(self, mass):
-        # Creates down regulated cell automatically. 
+        # Creates/Deletes down regulated cell automatically. 
         self.mass = mass
         while mass - avg_mass_cell > avg_mass_cell * self.get_cells(): 
             self.num_down += 1
@@ -349,19 +365,19 @@ def model_eps(cell_arr):
 
 def probability_down2up(conc_qsm):
     a = alpha
-    c = gamma
+    y = gamma
     qsm = conc_qsm
 
-    Qplus = alpha * qsm / (1 + c * qsm)
+    Qplus = alpha * qsm / (1 + y * qsm)
     return Qplus
 
 
 def probability_up2down(conc_qsm):
     b = beta
-    c = gamma
+    y = gamma
     qsm = conc_qsm
 
-    Qminus = b / (1 + gamma*qsm )
+    Qminus = b / (1 + y*qsm )
     return Qminus
 
 ### OTHER
