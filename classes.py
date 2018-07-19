@@ -6,7 +6,7 @@ import math
 from scipy.integrate import odeint
 
 # Files
-from input_file import *
+from input_file import * #If there's a variable you cannot find, it's probably here.
 
 ### A collection of all the classes currently:
 # Biofilm, collection of vortexes
@@ -29,19 +29,10 @@ class Biofilm:
     def update(self):
         # Update all vortexes, which then also updates particles
         self.time_step += 1
-        for vortex in self.vortex_arr:
-            neigh = self.get_vortex_neighbours(vortex)
-            vortex.update(neigh)
-        self.bulk_vortex()
-
-
-    def bulk_vortex(self):
         [Nx, Ny, Nz] = self.get_box_size()
         for vortex in self.vortex_arr:
-            if vortex.z == Nz - 1:
-                vortex.conc_subst = conc_bulk
-                vortex.particle_arr = []
-                vortex.pressure = 0
+            neigh = self.get_vortex_neighbours(vortex)
+            vortex.update(neigh, Nz)
 
 
     def get_box_size(self):
@@ -53,7 +44,7 @@ class Biofilm:
         # Gets vortex from vortex_arr at pos = x, y, z
         [Nx, Ny, Nz] = self.get_box_size()
         if 0 <= z < Nz:
-            x, y = _continous_boundary_condition(x,y)
+            x, y = self._cbc(x,y)
             index = Nx * Ny * z + Nx * y + x
             return self.vortex_arr[index]
         else:
@@ -83,7 +74,7 @@ class Biofilm:
         return vortex_arr
 
 
-    def _continous_boundary_condition(x,y):
+    def _cbc(self,x,y):
         # Continuous boundary condition (x & y direction)
         [Nx, Ny, Nz] = self.get_box_size()
         if x == -1:
@@ -100,46 +91,47 @@ class Biofilm:
 
 class Vortex:
     # Square compartments containing particles (Cells, EPS)
-    def __init__(self, x, y, z, particle_arr=[], eps_amount=0, conc_subst=0, conc_qsm=0):
+    def __init__(self,
+            x, y, z, 
+            cell_mass_arr=[], eps_mass_arr=[],
+            eps_amount=0, conc_subst=0, conc_qsm=0):
+
         self.x, self.y, self.z = x, y, z #position
-
-        #TODO: From particle_arr to eps & cell array
-        self.particle_arr = particle_arr.copy()
-        
-
-        self.eps_mass_arr = []
         
         # Same index refers to same particle
-        self.cell_mass_arr = []
-        self.cell_up_arr = []
-        self.cell_down_arr = []
+        self.cell_mass_nparr = np.array(cell_mass_arr)
+        self.cell_up_arr = [0] * len(cell_mass_arr) 
+        self.cell_down_arr =  np.ceil(self.cell_mass_nparr/avg_mass_cell).astype(int).tolist()
 
+
+        self.eps_mass_arr = eps_mass_arr.copy()
         self.eps_amount = eps_amount
         self.conc_subst = self.cs1 = conc_subst #substrate
         self.conc_qsm = self.cqsm1 = conc_qsm #quorom sensing molecule
-        self.N_p = len(particle_arr)
-        self.pressure = self.N_p / (max_particles - self.N_p )
 
+        self.pressure = 0
+        self.update_pressure()
+
+        self.counter = 0
+
+    def get_num_particles(self):
+        return len(self.eps_mass_arr) + len(self.cell_mass_nparr)
 
     def get_pos(self):
         return [self.x, self.y, self.z]
 
     def get_mass(self):
-        m = 0
-        for particle in self.particle_arr:
-            m += particle.mass
-        return m
+        return sum(self.eps_mass_arr) + sum(self.cell_mass_nparr)
 
     def update(self, neighbours, Nz):
+        self.counter += 1
         # Time step.
         # Creates variables cs1, cqsm1 which stores the new concentrations
-        # Is the concentration before/after correctly handled?
-        if self.z == Nz - 1:
-            self.conc_subst = 0
+        # TODO Is the concentration before/after correctly handled?
+        if self.z == Nz - 1: # If in bulk-liquid
+            self.conc_subst = conc_bulk
             self.conc_qsm = 0
-            self.particle_arr = []
             self.pressure = 0
-
 
         self.conc_subst, self.conc_qsm = self.cs1, self.cqsm1 
 
@@ -148,66 +140,115 @@ class Vortex:
         self._update_displacement(neighbours)
         self._update_concentration(neighbours)
 
-    def add_particle(self, particle):
-        self.particle_arr.append(particle)
-        self.N_p = len(self.particle_arr)
-        self.pressure = self.N_p / (max_particles - self.N_p )
+    def add_eps(self, mass):
+        self.eps_mass_arr.append(mass)
+        self.update_pressure()
 
+    
+    def add_cell(self, cell_mass, down, up):
+        self.cell_mass_nparr = np.append(self.cell_mass_nparr, cell_mass)
+        self.cell_up_arr.append(up)
+        self.cell_down_arr.append(down)
+        self.update_pressure()
+
+
+    def update_pressure(self):
+        N = self.get_num_particles()
+        self.pressure = N / (max_particles - N )
+
+    def create_up(self,index):
+        i=index
+        self.cell_up_arr[i] += 1
+        self.cell_down_arr[i] -= 1
+    def create_down(self,index):
+        i=index
+        self.cell_up_arr[i] -= 1
+        self.cell_down_arr[i] += 1
 
     def _update_particles(self):
         #Particle and prod_subst
         # Currently the slowest part
-        for particle in self.particle_arr:
-            if isinstance(particle, Particle_Cell):
-                if particle.mass > max_mass_cell:
-                    randf = 0.4 + 0.2* random() # 0.4 - 0.6
-                    
-                    new_particle = Particle_Cell( (1-randf) * particle.mass) 
-                    particle.set_mass(particle.mass * randf)
-                    
-                    # Distribute up cells between the particles (depending on num of cells)
-                    u = particle.num_up; d = particle.num_down
-                    for _ in range(u):
-                        if d == 0:
-                            break
+        #TODO Use np.random.binomial(n, probability) instead of for loop
+        #TODO Use eps and cell array with numpy/scipy
+        index_split_mass = [i for i in range(len(self.cell_mass_nparr)) if self.cell_mass_nparr[i] > max_mass_cell]
 
-                        tot_num_down = d + new_particle.num_down
-                        if d / tot_num_down < random():
-                            particle.create_up()
-                        else:
-                            new_particle.create_up()
+        for i in index_split_mass:
+            randf = 0.4 + 0.2* random() # 0.4 - 0.6
+            mass = self.cell_mass_nparr[i]
+            self.add_cell(mass * (1-ranf), ceil(mass/avg_mass_cell), 0)
+            self.cell_mass_nparr[i] *= randf
 
-                    self.add_particle(new_particle)
+            up, down = self.cell_up_arr[i], self.cell_down_arr[i]
+            transfer_up2new_cell = np.random.hypergeometric(up, down, up)
+            for _ in range(transfer_up2new_cell):
+                self.create_down(i)
+                self.create_up(-1) # -1 = new cell
 
-                v = substrate_uptake_rate = Vmax * self.conc_subst / (Ks + self.conc_subst) * particle.mass
-                particle.update(self.conc_subst, v, self.conc_qsm)
-            else: #isinstance(particle, EPS)
-                particle.update() 
+        self._update_cell()
+         
+
+    def _update_cell(self):
+        # TODO This function is from particle_cell
+        # Model eating of substrate and switching states (stochastic)
+        self._update_mass()
+        pd2u = probability_down2up(self.conc_qsm)*dt
+        pu2d = probability_up2down(self.conc_qsm)*dt 
+        sucess2up = np.random.binomial(self.cell_up_arr, pd2u)
+        sucess2down = np.random.binomial(self.cell_down_arr, pu2d)
+
+        for i in range(len(sucess2up)):  
+            for _ in range(int(sucess2up[i])):
+                self.create_up(i)
+        for i in range(len(sucess2down)):  
+            for _ in range(int(sucess2down[i])):
+                self.create_down(i)
+
+
+
+    def _update_mass(self):
+        v = Vmax * self.conc_subst / (Ks + self.conc_subst) * self.cell_mass_nparr #Substrate uptake rate, np array
+        # Updates mass according to model
+        new_mass_nparr = self.cell_mass_nparr + dt * model_cell_mass(self.conc_subst, self.cell_mass_nparr, v) 
+        self.set_mass(new_mass_nparr)
+        
+
+    def set_mass(self,mass_nparr):
+        # Updates cell count when mass updates
+        self.cell_mass_nparr = mass_nparr
+        upanddown_mass_arr = avg_mass_cell *(np.array(self.cell_up_arr) + np.array(self.cell_down_arr))
+        
+        x = (mass_nparr - avg_mass_cell > upanddown_mass_arr) #Points where mass is high enough to warrant another cell
+        for i in x.astype(int):
+            self.cell_down_arr[i] += 1
+        
+        #Prioritize removing down regulated
+        y =(mass_nparr+avg_mass_cell < upanddown_mass_arr )
+        for i in x.astype(int):
+            if self.cell_down_arr[i] > 0:
+                self.cell_down_arr[i] -= 1
+            elif self.cell_up_arr[i] > 0:
+                self.cell_up_arr[i] -= 1
 
 
     def _update_eps(self):
         #EPS production from bacteria
-        cell_arr = []
-        for particle in self.particle_arr:
-            if isinstance(particle, Particle_Cell):
-                cell_arr.append(particle)
-        self.eps_amount += dt * model_eps(cell_arr)
+        self.eps_amount += dt * model_eps(self.cell_down_arr, self.cell_up_arr)
 
         # If mass surpasses an amount, create particle from that mass
         if self.eps_amount > max_mass_eps:
-            self.particle_arr.append( Particle_EPS(max_mass_eps) )
+            self.eps_mass_arr.append( max_mass_eps )
             self.eps_amount -= max_mass_eps
 
 
     def _update_displacement(self, neighbours):
         # Displacement of particles (Pressure)
-        Np = len(self.particle_arr)
-        self.pressure = Np / (max_particles - Np)
+        self.update_pressure()
         mu = transfer_coefficient
 
         delta_Np = 0; tot_diff_pressure = 0
+        Np = self.get_num_particles()
         for vortex in neighbours:
-            Npp = len(vortex.particle_arr)
+            Npp = vortex.get_num_particles()
             if self.pressure > vortex.pressure and Np > Npp:
                 delta_Np += math.floor( mu* (self.pressure - vortex.pressure) * (Np - Npp))
             tot_diff_pressure += self.pressure - vortex.pressure
@@ -222,16 +263,26 @@ class Vortex:
         # From discrete distribution to cumulative distribution
         for i in range(len(probability) - 1):
             probability[i+1] += probability[i] # [0.1, 0.2, 0.4, 0.3] -> [0.1, 0.3, 0.7, 1] 
-        
+       
+
         for _ in range(delta_Np):
-            if self.particle_arr: #if not empty
-                r = random()
+            # Choose either cell or EPS particle
+            if np.random.hypergeometric(len(self.cell_mass_nparr), len(self.eps_mass_arr), 1): #True -> cell
                 for i, p in enumerate(probability):
                     if r <= p:
-                        index = np.random.randint(Np) # Random index to particles
-                        particle = self.particle_arr.pop(index) # Choose random particle
-                        Np -= 1
-                        neighbours[i].add_particle(particle)
+                        index = np.random.randint(len(self.cell_mass_nparr)) # Random index to particles
+                        mass = self.cell_mass_nparr[index] 
+                        self.cell_mass_nparr = np.delete(self.cell_mass_nparr, index)
+                        up = self.cell_up_arr.pop[index] 
+                        down = self.cell_down_arr.pop[index]
+
+                        neighbours[i].add_cell(mass, down, up)
+                        break
+            else:
+                for i, p in enumerate(probability):
+                    if r <= p:
+                        x = self.eps_mass_arr.pop()
+                        neighbours[i].add_eps(x)
                         break
 
 
@@ -248,13 +299,11 @@ class Vortex:
             cqsm_neigh.append(vortex.conc_qsm)
         
         # Production
-        for particle in self.particle_arr:
-            if isinstance(particle, Particle_Cell): 
-                v = substrate_uptake_rate = Vmax * self.conc_subst / (Ks + self.conc_subst) * particle.mass
-                prod_subst -= v
-
-                u = particle.num_up; d = particle.num_down
-                prod_qsm = Zqu * u * cqsm0 / (Kq + cqsm0) + Zqd * d
+        v = substrate_uptake_rate = Vmax * self.conc_subst / (Ks + self.conc_subst) * self.cell_mass_nparr
+        prod_subst -= np.sum(v)
+        u = sum(self.cell_up_arr)
+        d = sum(self.cell_down_arr)
+        prod_qsm = Zqu * u * cqsm0 / (Kq + cqsm0) + Zqd * d
 
         # Time step
         t = (0, dt)
@@ -264,69 +313,6 @@ class Vortex:
         arr =odeint(model_concentration, cqsm0, t, args=(cqsm_neigh,diffusion_qsm, prod_qsm) ) 
         self.cqsm1 = arr[1][0]
         
- 
-
-class Particle_Cell:
-    def __init__(self, mass):
-        self.mass = mass #changes over time, use set_mass(..)!
-        self.num_down = math.ceil( mass / avg_mass_cell) #Down-regulated cell
-        self.num_up = 0 #Up regulated cell (produces more EPS)
-        
-    def update(self, conc_subst, v, conc_qsm):
-        # Model eating of substrate and switching states (stochastic)
-        _update_mass(conc_subst, v)
-        pd2u = probability_down2up(conc_qsm)
-        pu2d = probability_up2down(conc_qsm) 
-        
-        for _ in range(self.num_down):
-            if random() < dt * pd2u:
-                self.create_up()
-
-        for _ in range(self.num_up):
-            if random() < dt * pu2d:
-                self.create_down()
-
-
-    def _update_mass(self, conc_subst, v):
-        # Updates mass according to model
-        new_mass = self.mass + dt * model_cell_mass(conc_subst, self.mass, v) 
-        self.set_mass(new_mass)
-
-
-    def get_cells(self):
-        #Returns the number of cells in particle
-        return self.num_down + self.num_up
-
-    def set_mass(self, mass):
-        # Creates/Deletes down regulated cell automatically. 
-        self.mass = mass
-        while mass - avg_mass_cell > avg_mass_cell * self.get_cells(): 
-            self.num_down += 1
-        while mass+avg_mass_cell < avg_mass_cell * self.get_cells():
-            if self.num_down > 0:
-                self.num_down -= 1
-            elif self.num_up > 0:
-                self.num_up -= 1
-
-    def create_up(self):
-        self.num_down -= 1
-        self.num_up += 1
-
-    def create_down(self):
-        self.num_down += 1
-        self.num_up -= 1
-
-
-class Particle_EPS:
-    def __init__(self, mass):
-        self.mass = mass
-        return 0
-
-    def update(self):
-        # No changes are made after creation
-        return 
-
-
 
 ### MODELS (Time derivatives)
 
@@ -352,14 +338,10 @@ def model_cell_mass(conc_subst, mass, v):
     return dMdt
 
 
-def model_eps(cell_arr):
+def model_eps(cell_up_arr, cell_down_arr):
     # Production of eps from cells (different prod for up/down given by Zd, Zu)
-    dEdt = 0
-    for cell in cell_arr:
-        d = cell.num_down
-        u = cell.num_up
+    dEdt = Zed * sum(cell_down_arr) + Zeu * sum(cell_up_arr)
 
-        dEdt += Zed * d + Zeu * u
     return dEdt
 
 

@@ -15,7 +15,8 @@ now = datetime.datetime.now()
 bf = classes.Biofilm()
 for vortex in bf.vortex_arr:
     if vortex.z == 0: 
-        vortex.particle_arr = [classes.Particle_Cell(400 + 400*random()) for _ in range(10) ]
+        for _ in range(10):
+            vortex.add_cell(400 + 400*random(), 2, 0)
 
 
 # print before
