@@ -1,4 +1,4 @@
-from input_file_fozard import *
+from input_file import *
 import classes
 import datetime
 now = datetime.datetime.now()

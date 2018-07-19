@@ -1,4 +1,4 @@
-from input_file_fozard import *
+from input_file import *
 from print_file import print_fozard
 import classes
 from numpy.random import random

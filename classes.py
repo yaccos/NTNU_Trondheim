@@ -5,9 +5,13 @@ import math
 from scipy.integrate import odeint
 
 # Files
-from input_file_fozard import *
+from input_file import *
 
-# A collection of all the classes currently.
+### A collection of all the classes currently:
+# Biofilm, collection of vortexes
+# Vortex, "Boxes" containing particles and concentrations
+# Particle_Cell, Particles of "n" cells, up/down regulated
+# Particle_EPS, Biofilm particles
 
 
 
@@ -16,8 +20,26 @@ class Biofilm:
     # Collection of vortexes of biofilm "lattice"
     def __init__(self):
         self.length = [Lx, Ly, Lz] # Total size of biofilm lattice
-        self.vortex_arr = self.init_vortex() # Collection of vortexes
+        self.vortex_arr = self._init_vortex() # Collection of vortexes in 1D list
         self.time_step = 0
+
+
+    def update(self):
+        # Update all vortexes, which then also updates particles
+        self.time_step += 1
+        for vortex in self.vortex_arr:
+            neigh = self.get_vortex_neighbours(vortex)
+            vortex.update(neigh)
+        self.bulk_vortex()
+
+
+    def bulk_vortex(self):
+        [Nx, Ny, Nz] = self.get_box_size()
+        for vortex in self.vortex_arr:
+            if vortex.z == Nz - 1:
+                vortex.conc_subst = conc_bulk
+                vortex.particle_arr = []
+                vortex.pressure = 0
 
 
     def get_box_size(self):
@@ -25,35 +47,15 @@ class Biofilm:
         return [int(self.length[i] / vortex_length) for i in range(3) ]
 
 
-    def init_vortex(self):
-        # Creates vortex at every xyz with substrate concentration of the bulk liquid
-        [Nx, Ny, Nz] = [ int(self.length[i] / vortex_length) for i in range(3)]
-        vortex_arr = []
-        for z in range(Nz):
-            for y in range(Ny):
-                for x in range(Nx):
-                    vortex_arr.append(Vortex(x, y, z, conc_subst = conc_bulk))
-        return vortex_arr
-
-
     def get_vortex(self, x, y, z):
         # Gets vortex from vortex_arr at pos = x, y, z
-        [nx, ny, nz] = [ int(self.length[i] / vortex_length) for i in range(3)]
-        if 0 <= z < nz:
-            # Continuous boundary condition (x & y direction)
-            if x == -1:
-                x = nx - 1
-            elif x == nx:
-                x = 0
-            if y == -1:
-                y = ny - 1
-            elif y == ny:
-                y = 0
-            index = nx * ny * z + nx * y + x
+        [Nx, Ny, Nz] = self.get_box_size()
+        if 0 <= z < Nz:
+            x, y = _continous_boundary_condition(x,y)
+            index = Nx * Ny * z + Nx * y + x
             return self.vortex_arr[index]
         else:
             return None
-
 
     def get_vortex_neighbours(self, vortex):
         # Neighbours when sides are touching, not when only corners
@@ -68,31 +70,40 @@ class Biofilm:
         return neighbours
 
 
-    def update(self):
-        #Update all vortexes, which then also updates particles
-        self.time_step += 1
-        for vortex in self.vortex_arr:
-            neigh = self.get_vortex_neighbours(vortex)
-            vortex.update(neigh)
-        self.bulk_vortex()
-
-    def bulk_vortex(self):
+    def _init_vortex(self):
+        # Creates vortex at every xyz with substrate concentration of the bulk liquid
         [Nx, Ny, Nz] = self.get_box_size()
-        for vortex in self.vortex_arr:
-            if vortex.z == Nz - 1:
-                vortex.conc_subst = conc_bulk
-                vortex.particle_arr = []
-                vortex.pressure = 0
+        vortex_arr = []
+        for z in range(Nz):
+            for y in range(Ny):
+                for x in range(Nx):
+                    vortex_arr.append(Vortex(x, y, z, conc_subst=conc_bulk))
+        return vortex_arr
+
+
+    def _continous_boundary_condition(x,y):
+        # Continuous boundary condition (x & y direction)
+        [Nx, Ny, Nz] = self.get_box_size()
+        if x == -1:
+            x = Nx - 1
+        elif x == Nx:
+            x = 0
+        if y == -1:
+            y = Ny - 1
+        elif y == Ny:
+            y = 0
+        return x,y
+            
+
 
 class Vortex:
     # Square compartments containing particles (Cells, EPS)
-    def __init__(self, x, y, z, particle_arr=[], eps_amount=0, conc_subst=0, conc_qsm=0, conc_qsi=0):
+    def __init__(self, x, y, z, particle_arr=[], eps_amount=0, conc_subst=0, conc_qsm=0):
         self.x, self.y, self.z = x, y, z #position
         self.particle_arr = particle_arr.copy()
         self.eps_amount = eps_amount
         self.conc_subst = self.cs1 = conc_subst #substrate
         self.conc_qsm = self.cqsm1 = conc_qsm #quorom sensing molecule
-        self.conc_qsi = self.cqsi1 = conc_qsi #quorom sensing inhibitor
         self.N_p = len(particle_arr)
         self.pressure = self.N_p / (max_particles - self.N_p )
 
@@ -106,11 +117,18 @@ class Vortex:
             m += particle.mass
         return m
 
-    def update(self, neighbours):
+    def update(self, neighbours, Nz):
         # Time step.
-        # Creates variables cs1, cqsm1, cqsi1 which stores the new concentrations
+        # Creates variables cs1, cqsm1 which stores the new concentrations
         # Is the concentration before/after correctly handled?
-        self.conc_subst, self.conc_qsm, self.conc_qsi = self.cs1, self.cqsm1, self.cqsi1
+        if self.z == Nz - 1:
+            self.conc_subst = 0
+            self.conc_qsm = 0
+            self.particle_arr = []
+            self.pressure = 0
+
+
+        self.conc_subst, self.conc_qsm = self.cs1, self.cqsm1 
 
         self._update_particles()
         self._update_eps()
@@ -125,6 +143,7 @@ class Vortex:
 
     def _update_particles(self):
         #Particle and prod_subst
+        # Currently the slowest part
         for particle in self.particle_arr:
             if isinstance(particle, Particle_Cell):
                 if particle.mass > max_mass_cell:
@@ -148,7 +167,7 @@ class Vortex:
                     self.add_particle(new_particle)
 
                 v = substrate_uptake_rate = Vmax * self.conc_subst / (Ks + self.conc_subst) * particle.mass
-                particle.update(self.conc_subst, v, self.conc_qsm, self.conc_qsi)
+                particle.update(self.conc_subst, v, self.conc_qsm)
             else: #isinstance(particle, EPS)
                 particle.update() 
 
@@ -205,17 +224,15 @@ class Vortex:
 
     def _update_concentration(self, neighbours):
         # Initialize
-        cs0, cqsm0, cqsi0 = self.conc_subst, self.conc_qsm, self.conc_qsi  
+        cs0, cqsm0 = self.conc_subst, self.conc_qsm
         prod_subst = 0
         prod_qsm = 0
-        prod_qsi = 0 # No production from bacteria
         
         # Neighbours 
-        cs_neigh, cqsm_neigh, cqsi_neigh = [], [], []
+        cs_neigh, cqsm_neigh = [], []
         for vortex in neighbours:
             cs_neigh.append(vortex.conc_subst)
             cqsm_neigh.append(vortex.conc_qsm)
-            cqsi_neigh.append(vortex.conc_qsi)
         
         # Production
         for particle in self.particle_arr:
@@ -233,8 +250,6 @@ class Vortex:
         self.cs1 = arr[1][0]
         arr =odeint(model_concentration, cqsm0, t, args=(cqsm_neigh,diffusion_qsm, prod_qsm) ) 
         self.cqsm1 = arr[1][0]
-        arr =odeint(model_concentration, cqsi0, t, args=(cqsi_neigh,diffusion_qsi, prod_qsi) ) 
-        self.cqsi1 = arr[1][0]
         
  
 
@@ -244,11 +259,11 @@ class Particle_Cell:
         self.num_down = math.ceil( mass / avg_mass_cell) #Down-regulated cell
         self.num_up = 0 #Up regulated cell (produces more EPS)
         
-    def update(self, conc_subst, v, conc_qsm, conc_qsi):
+    def update(self, conc_subst, v, conc_qsm):
         # Model eating of substrate and switching states (stochastic)
         self.set_mass(self.mass + dt * model_cell_mass(conc_subst, self.mass, v) )
-        pd2u = probability_down2up(conc_qsm, conc_qsi)
-        pu2d = probability_up2down(conc_qsm, conc_qsi) 
+        pd2u = probability_down2up(conc_qsm)
+        pu2d = probability_up2down(conc_qsm) 
         
         for _ in range(self.num_down):
             randf = np.random.random()
@@ -301,7 +316,7 @@ class Particle_EPS:
 
 def model_concentration(conc, t, conc_neigh_arr, diffusion_const, production=0):
     # return derivative of concentration
-    # diffusion_const = diffusion_subst, diffusion_qsi, diffusion_qsm
+    # diffusion_const = diffusion_subst, diffusion_qsm
     D = diffusion_const
     l = vortex_length
     f = production
@@ -332,23 +347,21 @@ def model_eps(cell_arr):
     return dEdt
 
 
-def probability_down2up(conc_qsm, conc_qsi):
+def probability_down2up(conc_qsm):
     a = alpha
     c = gamma
     qsm = conc_qsm
-    qsi = conc_qsi
 
-    Qplus = alpha * qsm / (1 + c * (qsm + qsi) )
+    Qplus = alpha * qsm / (1 + c * qsm)
     return Qplus
 
 
-def probability_up2down(conc_qsm, conc_qsi):
+def probability_up2down(conc_qsm):
     b = beta
     c = gamma
     qsm = conc_qsm
-    qsi = conc_qsi
 
-    Qminus = b * (1 + gamma*qsi) / (1 + gamma*(qsm + qsi) )
+    Qminus = b / (1 + gamma*qsm )
     return Qminus
 
 ### OTHER
@@ -365,7 +378,7 @@ def time_step(N_times, biofilm):
             estimate_time(biofilm, N_times-i)
             # Every 10% print to a file
             if int(x) % 10 == 0:
-                print_file.print_output("temporary.dat", biofilm)
+                print_file.print_output("data/temporary" + str(x) + ".dat", biofilm)
 
 
 from time import time
