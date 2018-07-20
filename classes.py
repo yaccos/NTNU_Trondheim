@@ -130,7 +130,7 @@ class Vortex:
 
         if debug:
             t = time()
-            self._update_particles()
+            self._update_particles(debug)
             self.time[0] = time() - t
 
             t = time()
@@ -164,19 +164,18 @@ class Vortex:
         N = self.get_num_particles()
         self.pressure = N / (max_particles - N)
 
-    def create_up(self, index):
-        i = index
-        self.cell_up_arr[i] += 1
-        self.cell_down_arr[i] -= 1
+    def create_up(self, index, n=1):
+        self.cell_up_arr[index] += n
+        self.cell_down_arr[index] -= n
 
-    def create_down(self, index):
-        i = index
-        self.cell_up_arr[i] -= 1
-        self.cell_down_arr[i] += 1
+    def create_down(self, index, n=1):
+        self.cell_up_arr[index] -= n
+        self.cell_down_arr[index] += n
 
-    def _update_particles(self):
+    def _update_particles(self, debug=False):
         # Particle and prod_subst
         # Currently the slowest part
+        t = time()
         index_split_mass = [i for i in range(len(self.cell_mass_nparr)) if self.cell_mass_nparr[i] > max_mass_cell]
         for i in index_split_mass:
             randf = 0.4 + 0.2 * random()  # 0.4 - 0.6
@@ -189,25 +188,38 @@ class Vortex:
             for _ in range(transfer_up2new_cell):
                 self.create_down(i)
                 self.create_up(-1)  # -1 = new cell
+        if self.get_pos() == [0, 0, 0] and debug:
+            print("index", time() - t)
+            t = time()
 
-        self._update_cell()
+        self._update_cell(debug)
+        if self.get_pos() == [0, 0, 0] and debug:
+            print("u_cel", time() - t)
 
-    def _update_cell(self):
+    def _update_cell(self, debug=False):
         # Model eating of substrate and switching states (stochastic)
+        # TODO: Speed up "mass" > "index"
 
+        t = time()
         self._update_mass()
+        if self.get_pos() == [0, 0, 0] and debug:
+            print("_mass", time() - t)
+            t = time()
+
         pd2u = probability_down2up(self.conc_qsm) * dt
         pu2d = probability_up2down(self.conc_qsm) * dt
 
-        sucess2up = np.random.binomial(self.cell_down_arr, pd2u)
-        sucess2down = np.random.binomial(self.cell_up_arr, pu2d)
+        success2up = np.random.binomial(self.cell_down_arr, pd2u)
+        success2down = np.random.binomial(self.cell_up_arr, pu2d)
 
-        for i in range(len(sucess2up)):
-            for _ in range(int(sucess2up[i])):
-                self.create_up(i)
-        for i in range(len(sucess2down)):
-            for _ in range(int(sucess2down[i])):
-                self.create_down(i)
+        if self.get_pos() == [0, 0, 0] and debug:
+            print("_prob", time() - t)
+
+        for i in np.argwhere(success2up > 0):
+            self.create_up(index=int(i), n=success2up[i])
+        for i in np.argwhere(success2down > 0):
+            self.create_down(index=int(i), n=success2down[i])
+
 
     def _update_mass(self):
         v = Vmax * self.conc_subst / (Ks + self.conc_subst) * self.cell_mass_nparr  # Substrate uptake rate, np array
