@@ -26,13 +26,13 @@ class Biofilm:
         self.time_step = 0
 
 
-    def update(self):
+    def update(self, debug=False):
         # Update all vortexes, which then also updates particles
         self.time_step += 1
         [Nx, Ny, Nz] = self.get_box_size()
         for vortex in self.vortex_arr:
             neigh = self.get_vortex_neighbours(vortex)
-            vortex.update(neigh, Nz)
+            vortex.update(neigh, Nz, debug)
 
 
     def get_box_size(self):
@@ -123,7 +123,7 @@ class Vortex:
     def get_mass(self):
         return sum(self.eps_mass_arr) + sum(self.cell_mass_nparr)
 
-    def update(self, neighbours, Nz):
+    def update(self, neighbours, Nz, debug=False):
         self.counter += 1
         # Time step.
         # Creates variables cs1, cqsm1 which stores the new concentrations
@@ -135,10 +135,21 @@ class Vortex:
 
         self.conc_subst, self.conc_qsm = self.cs1, self.cqsm1 
 
-        self._update_particles()
-        self._update_eps()
-        self._update_displacement(neighbours)
-        self._update_concentration(neighbours)
+        if debug and self.get_pos() == [0,0,0]: # Time the different parts of the update
+            t = time()
+            self._update_particles()
+            print("\nParticle: \t %.5f" % (time() - t)); t = time()
+            self._update_eps()
+            print("EPS \t\t %.5f"% (time() - t)); t = time()
+            self._update_displacement(neighbours)
+            print("Displacement \t %.5f" % (time() - t)); t = time()
+            self._update_concentration(neighbours)
+            print("Concentration \t %.5f" % (time() - t))
+        else:
+            self._update_particles()
+            self._update_eps()
+            self._update_displacement(neighbours)
+            self._update_concentration(neighbours)
 
     def add_eps(self, mass):
         self.eps_mass_arr.append(mass)
@@ -160,6 +171,8 @@ class Vortex:
         i=index
         self.cell_up_arr[i] += 1
         self.cell_down_arr[i] -= 1
+
+
     def create_down(self,index):
         i=index
         self.cell_up_arr[i] -= 1
@@ -171,11 +184,10 @@ class Vortex:
         #TODO Use np.random.binomial(n, probability) instead of for loop
         #TODO Use eps and cell array with numpy/scipy
         index_split_mass = [i for i in range(len(self.cell_mass_nparr)) if self.cell_mass_nparr[i] > max_mass_cell]
-
         for i in index_split_mass:
             randf = 0.4 + 0.2* random() # 0.4 - 0.6
             mass = self.cell_mass_nparr[i]
-            self.add_cell(mass * (1-ranf), ceil(mass/avg_mass_cell), 0)
+            self.add_cell(mass * (1-randf), math.ceil(mass/avg_mass_cell), 0)
             self.cell_mass_nparr[i] *= randf
 
             up, down = self.cell_up_arr[i], self.cell_down_arr[i]
@@ -184,17 +196,20 @@ class Vortex:
                 self.create_down(i)
                 self.create_up(-1) # -1 = new cell
 
+        
         self._update_cell()
          
 
     def _update_cell(self):
         # TODO This function is from particle_cell
         # Model eating of substrate and switching states (stochastic)
+        
         self._update_mass()
         pd2u = probability_down2up(self.conc_qsm)*dt
         pu2d = probability_up2down(self.conc_qsm)*dt 
-        sucess2up = np.random.binomial(self.cell_up_arr, pd2u)
-        sucess2down = np.random.binomial(self.cell_down_arr, pu2d)
+        
+        sucess2up = np.random.binomial(self.cell_down_arr, pd2u)
+        sucess2down = np.random.binomial(self.cell_up_arr, pu2d)
 
         for i in range(len(sucess2up)):  
             for _ in range(int(sucess2up[i])):
@@ -383,7 +398,7 @@ from time import time
 def estimate_time(bf, N):
     # Calculate estimated time (using 1 iterations)
     start_time = time()
-    bf.update()
+    bf.update(debug=True)
     est_time = N * (time() - start_time)
     hour = int(est_time/3600)
     minute = int(est_time/60 - hour*60) 

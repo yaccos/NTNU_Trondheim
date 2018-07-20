@@ -1,5 +1,5 @@
 from input_file import *
-from print_file import print_fozard
+from print_file import print_fozard, print_output
 import classes
 from numpy.random import random
 from time import time
