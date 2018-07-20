@@ -234,8 +234,8 @@ class Vortex:
 
         x = (
                 mass_nparr - avg_mass_cell > upanddown_mass_arr)  # Points where mass is high enough to warrant another cell
-        for i in x.astype(int):
-            self.cell_down_arr[i] += 1
+        for i in x:
+            self.cell_down_arr[int(i)] += 1
 
         # Prioritize removing down regulated
         y = (mass_nparr + avg_mass_cell < upanddown_mass_arr)
