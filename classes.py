@@ -168,12 +168,12 @@ class Vortex:
         self.pressure = N / (max_particles - N)
 
     def create_up(self, index, n=1):
-        self.cell_up_arr[index] += n
-        self.cell_down_arr[index] -= n
+        self.cell_up_arr[index] += int(n)
+        self.cell_down_arr[index] -= int(n)
 
     def create_down(self, index, n=1):
-        self.cell_up_arr[index] -= n
-        self.cell_down_arr[index] += n
+        self.cell_up_arr[index] -= int(n)
+        self.cell_down_arr[index] += int(n)
 
     def _update_particles(self, debug=False):
         # Particle and prod_subst
@@ -231,7 +231,6 @@ class Vortex:
 
     def set_mass(self, mass_nparr):
         # Updates cell count when mass updates
-        # TODO Ensure no bugs "Only length-1 arrays can be converted to Python scalars"
         self.cell_mass_nparr = mass_nparr
         upanddown_mass_arr = avg_mass_cell * (np.array(self.cell_up_arr) + np.array(self.cell_down_arr))
 
@@ -239,6 +238,11 @@ class Vortex:
         x = (mass_nparr > upanddown_mass_arr)
 
         for i in np.argwhere(x):
+            if len(i) > 1:
+                print("ERROR")
+                print(self.cell_up_arr)
+                print(mass_nparr)
+                print(upanddown_mass_arr)
             self.cell_down_arr[int(i)] += 1
 
         # Prioritize removing down regulated
@@ -281,8 +285,7 @@ class Vortex:
                 probability[i] = (self.pressure - vortex.pressure) / tot_diff_pressure
 
         # From discrete distribution to cumulative distribution
-        for i in range(len(probability) - 1):
-            probability[i + 1] += probability[i]  # [0.1, 0.2, 0.4, 0.3] -> [0.1, 0.3, 0.7, 1]
+        probability = np.cumsum(probability).tolist()
 
         for _ in range(delta_Np):
             # Choose either cell or EPS particle
@@ -343,7 +346,7 @@ def model_concentration(conc, t, conc_neigh_arr, diffusion_const, production=0):
     f = production
     n = len(conc_neigh_arr)
 
-    dcdt = D / l ** 2 * (sum(conc_neigh_arr) - n * conc) + production / l ** 3
+    dcdt = D / l ** 2 * (sum(conc_neigh_arr) - n * conc) + f / l ** 3
     return dcdt
 
 
@@ -360,7 +363,6 @@ def model_cell_mass(conc_subst, mass, v):
 def model_eps(cell_up_arr, cell_down_arr):
     # Production of eps from cells (different prod for up/down given by Zd, Zu)
     dEdt = Zed * sum(cell_down_arr) + Zeu * sum(cell_up_arr)
-
     return dEdt
 
 
