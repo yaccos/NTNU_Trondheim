@@ -1,7 +1,7 @@
 # SHORT
-final_time = 1 * 60.0  # minutes
+final_time = 14 * 60.0  # minutes
 conc_bulk = 0.2
-dt = 0.05 / 60  # min = 0.5 sec [5 sec]
+dt = 0.5 / 60  # min = 0.5 sec [5 sec]
 
 # LONG
 N = int(final_time / dt)  # Number of steps
