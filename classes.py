@@ -70,6 +70,8 @@ class Biofilm:
 
     def _cbc(self, x, y):
         # Continuous boundary condition (x & y direction)
+        # Parameters: Vortex position (int) x and y
+        # Returns: Vortex position (int) x and y
         [Nx, Ny, Nz] = self.get_box_size()
         if x == -1:
             x = Nx - 1
@@ -104,7 +106,8 @@ class Vortex:
         self.pressure = 0
         self.update_pressure()
 
-        self.counter = 0
+        # Debug
+        self.counter = 0  # Counts timestep
         self.time = np.zeros(4)
 
     def get_num_particles(self):
@@ -189,12 +192,12 @@ class Vortex:
                 self.create_down(i)
                 self.create_up(-1)  # -1 = new cell
         if self.get_pos() == [0, 0, 0] and debug:
-            print("index", time() - t)
+            print("\nindex", (time() - t) * 3 * 3 * 10)
             t = time()
 
         self._update_cell(debug)
         if self.get_pos() == [0, 0, 0] and debug:
-            print("u_cel", time() - t)
+            print("u_cel", (time() - t) * 3 * 3 * 10)
 
     def _update_cell(self, debug=False):
         # Model eating of substrate and switching states (stochastic)
@@ -203,7 +206,7 @@ class Vortex:
         t = time()
         self._update_mass()
         if self.get_pos() == [0, 0, 0] and debug:
-            print("_mass", time() - t)
+            print("_mass", (time() - t) * 3 * 3 * 10)
             t = time()
 
         pd2u = probability_down2up(self.conc_qsm) * dt
@@ -213,13 +216,12 @@ class Vortex:
         success2down = np.random.binomial(self.cell_up_arr, pu2d)
 
         if self.get_pos() == [0, 0, 0] and debug:
-            print("_prob", time() - t)
+            print("_prob", (time() - t) * 3 * 3 * 10)
 
         for i in np.argwhere(success2up > 0):
             self.create_up(index=int(i), n=success2up[i])
         for i in np.argwhere(success2down > 0):
             self.create_down(index=int(i), n=success2down[i])
-
 
     def _update_mass(self):
         v = Vmax * self.conc_subst / (Ks + self.conc_subst) * self.cell_mass_nparr  # Substrate uptake rate, np array
@@ -229,21 +231,24 @@ class Vortex:
 
     def set_mass(self, mass_nparr):
         # Updates cell count when mass updates
+        # TODO Ensure no bugs "Only length-1 arrays can be converted to Python scalars"
         self.cell_mass_nparr = mass_nparr
         upanddown_mass_arr = avg_mass_cell * (np.array(self.cell_up_arr) + np.array(self.cell_down_arr))
 
-        x = (
-                mass_nparr - avg_mass_cell > upanddown_mass_arr)  # Points where mass is high enough to warrant another cell
-        for i in x:
+        # Points where mass is high enough to warrant another cell
+        x = (mass_nparr > upanddown_mass_arr)
+
+        for i in np.argwhere(x):
             self.cell_down_arr[int(i)] += 1
 
         # Prioritize removing down regulated
-        y = (mass_nparr + avg_mass_cell < upanddown_mass_arr)
-        for i in x.astype(int):
-            if self.cell_down_arr[i] > 0:
-                self.cell_down_arr[i] -= 1
-            elif self.cell_up_arr[i] > 0:
-                self.cell_up_arr[i] -= 1
+        upanddown_mass_arr = avg_mass_cell * (np.array(self.cell_up_arr) + np.array(self.cell_down_arr))
+        y = (mass_nparr < upanddown_mass_arr - avg_mass_cell)
+        for i in np.argwhere(y):
+            if self.cell_down_arr[int(i)] > 0:
+                self.cell_down_arr[int(i)] -= 1
+            else:  # cell_up_array > 0
+                self.cell_up_arr[int(i)] -= 1
 
     def _update_eps(self):
         # EPS production from bacteria
@@ -380,23 +385,28 @@ def probability_up2down(conc_qsm):
 ### OTHER
 
 import print_file
-
+from time import time
 
 def time_step(N_times, biofilm):
     # Does N time-steps. Includes a loading "bar".
+    init_time = time()
     loading_bar = [j for j in range(110)]
     for i in range(N_times):
         biofilm.update()
         if i * 100.0 / N_times >= loading_bar[0]:
             x = loading_bar.pop(0)
-            print("%i %%" % x, end='\t\t')
+            print("%i %%" % x)
+
+            rt_min = (time() - init_time) // 60
+            print("Real time used (min)", rt_min)
+            model_time = dt * biofilm.time_step
+            print("Model time (min)", model_time)
             estimate_time(biofilm, N_times - i)
             # Every 10% print to a file
             if int(x) % 10 == 0:
                 print_file.print_output("data/temporary" + str(x) + ".dat", biofilm)
 
 
-from time import time
 
 
 def estimate_time(bf, N):
