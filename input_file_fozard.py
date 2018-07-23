@@ -1,8 +1,11 @@
 ### SHORT
+# Time at the end of the simulation
 final_time = 7 * 60.0 # minutes
+#Concentration of substrate in bulk fluid
 conc_bulk = 0.2
 
 ### LONG
+# Length of time steps
 dt = 0.5/60 # min = 0.5 sec [5 sec]
 N = int(final_time / dt)  # Number of steps
 
@@ -27,12 +30,13 @@ maintenance_rate = 6e-4
 
 Zed = 0   # Down-regulated EPS production
 Zeu = 1e-3   # Up-regulated EPS production
-Zqd = 8.3
-Zqu = 1230
-transfer_coefficient = 1e-3
+Zqd = 8.3 # Down-regulated QSM production
+Zqu = 1230 # Up-regulated QSM production
+transfer_coefficient = 1e-3 # for particles between voxels
 
+# Quorum sensing state alternation constants
 alpha = 1.33
 beta = 10
 gamma = 0.001
-Kq = 10 # Positive feedback (QSM production with QSM concentration)
 
+Kq = 10 # Positive feedback (QSM production with QSM concentration)
