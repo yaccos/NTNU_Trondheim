@@ -22,19 +22,106 @@ class Biofilm:
     def __init__(self):
         self.length = [Lx, Ly, Lz]  # Total size of biofilm lattice
         self.vortex_arr = self._init_vortex()  # Collection of vortexes in 1D list
+        self.total_cell_mass = np.empty(self.length)  # The total cell mass in each vortex
+        self.up_percentage = np.empty(self.length)  # The percentage of up-regulated biomass
+        self.conc_subst = np.empty(self.length)  # Substrate concentration
+        self.eps_amount = np.empty(self.length)  # Amount of free eps
+        self.particles = np.empty(self.length, dtype=ParticleList)  # List of particles in each vortex
         self.time_step = 0
 
     def update(self, debug=False):
-        # Update all vortexes, which then also updates particles
         self.time_step += 1
         [nx, ny, nz] = self.get_box_size()
+        if debug:
+            t = time()
+            self._update_particles(debug)
+            self.time[0] = time() - t
+            t = time()
+            self._update_eps()
+            self.time[1] = time() - t
+
+            t = time()
+            self._update_displacement()
+            self.time[2] = time() - t
+
+            t = time()
+            self._update_concentration()
+            self.time[3] = time() - t
+        else:
+            self._update_particles()
+            self._update_eps()
+            self._update_displacement()
+            self._update_concentration()
         for vortex in self.vortex_arr:
             neigh = self.get_vortex_neighbours(vortex)
             vortex.update(neigh, nz, debug)
 
+    def _update_particles(self, debug):
+        t = time()
+        for pos in self.get_indicies().flatten():
+            if pos == [0, 0, 0] and debug:
+                print("\nindex", (time() - t) * 3 * 3 * 10)
+                t = time()
+            self.particles[pos].divide_particles()
+            # Updating cell mass
+            self._update_mass(pos)
+            self._update_quorum(pos)
+
+    def _update_mass(self, pos):
+        v = max_yield * Vmax * self.conc_subst[pos] / (
+                    Ks + self.conc_subst[pos]) * self.particles[pos].cell_mass  # Growth rate, np array
+        new_cell_mass = dt * sum(v)
+        # Updating the proportion of up-regulated cells. Newly formed cells are down-regulated
+        self.particles[pos].proportion_postive = self.total_cell_mass[pos]/(new_cell_mass+self.total_cell_mass[pos])
+        # Updates mass according to model
+        self.total_cell_mass[pos] += new_cell_mass
+        self.particles[pos].cell_mass += dt * v
+
+    def _update_quorum(self, pos):
+        pd2u = probability_down2up(self.conc_qsm[pos]) * dt
+        pu2d = probability_up2down(self.conc_qsm[pos]) * dt
+        success2up = np.random.binomial(self.particles[pos], pd2u)
+        success2down = np.random.binomial(self.cell_up_arr, pu2d)
+        delta = success2up - success2down
+
+
+
+    def _update_cell(self, pos,debug=False):
+        # Model eating of substrate and switching states (stochastic)
+        # TODO: Speed up "mass" > "index"
+
+        t = time()
+        self._update_mass(pos)
+
+        pd2u = probability_down2up(self.conc_qsm) * dt
+        pu2d = probability_up2down(self.conc_qsm) * dt
+
+        success2up = np.random.binomial(self.cell_down_arr, pd2u)
+        success2down = np.random.binomial(self.cell_up_arr, pu2d)
+
+        if self.get_pos() == [0, 0, 0] and debug:
+            print("_prob", (time() - t) * 3 * 3 * 10)
+
+        for i in np.argwhere(success2up > 0):
+            self.create_up(index=int(i), n=success2up[i])
+        for i in np.argwhere(success2down > 0):
+            self.create_down(index=int(i), n=success2down[i])
+
+
+
+
+
+
+
     def get_box_size(self):
         # Returns the number of boxes in each direction [Nx, Ny, Nz]
         return [int(self.length[i] / vortex_length) for i in range(3)]
+
+    def get_indicies(self):
+        # Returns the indicies of the grid
+        return np.indices(self.length)
+
+
 
     def get_vortex(self, x, y, z):
         # Gets vortex from vortex_arr at pos = x, y, z
@@ -334,6 +421,28 @@ class Vortex:
         self.cs1 = arr[1][0]
         arr = odeint(model_concentration, cqsm0, t, args=(cqsm_neigh, diffusion_qsm, prod_qsm))
         self.cqsm1 = arr[1][0]
+
+
+class ParticleList:
+    def __init__(self, cell_mass = np.empty(0), proprotion_positive = np.empty(0)):
+        self.cell_mass = cell_mass
+        self.proportion_positive = proprotion_positive
+
+    def divide_particles(self):
+        # Finding particles to divide
+        outgrown = self.cell_mass > max_mass_cell
+        # Determines proportions between daughter particles
+        split_proportions = 0.4 + 0.2 * np.rand(outgrown.size)
+        # Creating new particles
+        new_particles_masses = (1 - split_proportions) * self.cell_mass[outgrown]
+        # Updating "old" particles
+        self.cell_mass[outgrown] = split_proportions * self.cell_mass[outgrown]
+        # Adding the new particles to the object
+        self.cell_mass = np.concatenate(self.cell_mass, new_particles_masses)
+        # Note that the new particles will have the same proportion of up-regulated cells as their parents
+        self.proportion_positive = np.concatenate(self.proportion_positive, self.proportion_positive[outgrown])
+
+
 
 
 ### MODELS (Time derivatives)
