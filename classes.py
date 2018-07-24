@@ -68,21 +68,29 @@ class Biofilm:
             self._update_quorum(pos)
 
     def _update_mass(self, pos):
-        v = max_yield * Vmax * self.conc_subst[pos] / (
-                    Ks + self.conc_subst[pos]) * self.particles[pos].cell_mass  # Growth rate, np array
-        new_cell_mass = dt * sum(v)
+        particle_list = self.particles[pos]
+        growth = max_yield * (Vmax * self.conc_subst[pos] / (
+                    Ks + self.conc_subst[pos]) -
+                         maintenance_rate) * particle_list.cell_mass  # Growth rate, np array
+        new_cell_mass = dt * sum(growth)
         # Updating the proportion of up-regulated cells. Newly formed cells are down-regulated
-        self.particles[pos].proportion_postive = self.total_cell_mass[pos]/(new_cell_mass+self.total_cell_mass[pos])
+        particle_list.proportion_positive = self.total_cell_mass[pos]/(new_cell_mass+self.total_cell_mass[pos])
         # Updates mass according to model
         self.total_cell_mass[pos] += new_cell_mass
-        self.particles[pos].cell_mass += dt * v
+        particle_list.cell_mass += dt * growth
 
     def _update_quorum(self, pos):
+        particle_list = self.particles[pos]
         pd2u = probability_down2up(self.conc_qsm[pos]) * dt
         pu2d = probability_up2down(self.conc_qsm[pos]) * dt
-        success2up = np.random.binomial(self.particles[pos], pd2u)
-        success2down = np.random.binomial(self.cell_up_arr, pu2d)
-        delta = success2up - success2down
+        n_upregulated = biomass_to_cell_count(particle_list.proportion_positive * particle_list.cell_mass)
+        n_downregulated = biomass_to_cell_count((1 - particle_list.proportion_positive) * particle_list.cell_mass)
+        success2up = np.random.binomial(n_upregulated, pd2u)
+        success2down = np.random.binomial(n_downregulated, pu2d)
+        delta_cell_count = success2up - success2down
+        delta_biomass = cell_count_to_biomass(delta_cell_count)
+        particle_list.proportion_positive += delta_biomass / particle_list.cell_mass
+
 
 
 
@@ -538,3 +546,11 @@ def estimate_time(bf, N):
     print("Timed", np.around(t, 3))
     print("Loss: %.3f" % (est_time_sec - np.sum(t)))
     print()
+
+
+def cell_count_to_biomass(count):
+    return avg_mass_cell * count
+
+
+def biomass_to_cell_count(biomass):
+    return np.ceil(avg_mass_cell * biomass)
