@@ -3,7 +3,6 @@ import numpy as np
 from numpy.random import random
 import math
 from scipy.integrate import odeint
-import copy
 
 # Files
 from input_file import *  # If there's a variable you cannot find, it's probably here.
@@ -22,12 +21,15 @@ class Biofilm:
     # TODO Concentration array instead of Vortexes
     def __init__(self):
         self.length = [Lx, Ly, Lz]  # Total size of biofilm lattice
+        self.grid_size = self.length // vortex_length
         self.vortex_arr = self._init_vortex()  # Collection of vortexes in 1D list
-        self.total_cell_mass = np.empty(self.length)  # The total cell mass in each vortex
-        self.up_percentage = np.empty(self.length)  # The percentage of up-regulated biomass
-        self.conc_subst = np.empty(self.length)  # Substrate concentration
-        self.eps_amount = np.empty(self.length)  # Amount of free eps
-        self.particles = np.empty(self.length, dtype=ParticleList)  # List of particles in each vortex
+        self.total_cell_mass = np.zeros(self.grid_size)  # The total cell mass in each vortex
+        self.up_percentage = np.zeros(self.grid_size)  # The percentage of up-regulated biomass
+        self.conc_subst = np.zeros(self.grid_size)  # Substrate concentration
+        self.conc_qsm = np.zeros(self.grid_size) # QSM concentration
+        self.eps_amount = np.zeros(self.grid_size)  # Amount of free eps
+        self.particles = np.empty(self.grid_size, dtype=ParticleList)  # List of particles in each vortex
+        self.pressure = np.zeros(self.grid_size)
         self.time_step = 0
 
     def update(self, debug=False):
@@ -38,28 +40,22 @@ class Biofilm:
             self._update_particles(debug)
             self.time[0] = time() - t
             t = time()
-            self._update_eps()
+
+            t = time()
+            self._update_displacement()
             self.time[1] = time() - t
 
             t = time()
-            self._update_displacement()
-            self.time[2] = time() - t
-
-            t = time()
             self._update_concentration()
-            self.time[3] = time() - t
+            self.time[2] = time() - t
         else:
             self._update_particles()
-            self._update_eps()
             self._update_displacement()
             self._update_concentration()
-        for vortex in self.vortex_arr:
-            neigh = self.get_vortex_neighbours(vortex)
-            vortex.update(neigh, nz, debug)
 
     def _update_particles(self, debug):
         t = time()
-        for pos in self.get_indicies().flatten():
+        for pos in self.get_indicies().squeeze(axis=(1, 2, 3)):
             if pos == [0, 0, 0] and debug:
                 print("\nindex", (time() - t) * 3 * 3 * 10)
                 t = time()
@@ -110,8 +106,13 @@ class Biofilm:
         self.particles[pos].proportion_positive = \
             np.concatenate(self.particles[pos].proportion_positive, np.zeros(n_new_eps_particles))
 
+    def _update_pressure(self, pos):
+        # Updates pressure at voxel
+        num_particles = self.particles[pos].total_cell_mass.size()
+        if num_particles > max_particles:
+            pressure = math.floor(num_particles) / (max_particles - math.floor(num_particles))
 
-
+    def add_cell(self, pos, cell_mass, proportion_up):
 
 
 
@@ -122,9 +123,7 @@ class Biofilm:
 
     def get_indicies(self):
         # Returns the indicies of the grid
-        return np.indices(self.length)
-
-
+        return np.indices(self.grid_size)
 
     def get_vortex(self, x, y, z):
         # Gets vortex from vortex_arr at pos = x, y, z

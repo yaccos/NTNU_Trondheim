@@ -13,8 +13,7 @@ now = datetime.datetime.now()
 # INITIALIZE BIOFILM
 # 1-2 cells in 10 particles per vortex
 bf = classes.Biofilm()
-for vortex in bf.vortex_arr:
-    if vortex.z == 0:
+for pos in bf.get_indicies()[:][:][0].squeeze(axis=(1, 2)):
         for _ in range(10):
             vortex.add_cell(400 + 400 * random(), 2, 0)
 
