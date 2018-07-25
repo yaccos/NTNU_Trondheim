@@ -20,7 +20,7 @@ class Biofilm:
     # Collection of vortexes of biofilm "lattice"
     # TODO Concentration array instead of Vortexes
     def __init__(self):
-        self.length = [Lx, Ly, Lz]  # Total size of biofilm lattice
+        self.length = np.array([Lx, Ly, Lz])  # Total size of biofilm lattice
         self.grid_size = self.length // vortex_length
         self.vortex_arr = self._init_vortex()  # Collection of vortexes in 1D list
         self.total_cell_mass = np.zeros(self.grid_size)  # The total cell mass in each vortex
@@ -39,7 +39,6 @@ class Biofilm:
             t = time()
             self._update_particles(debug)
             self.time[0] = time() - t
-            t = time()
 
             t = time()
             self._update_displacement()
@@ -113,6 +112,12 @@ class Biofilm:
             pressure = math.floor(num_particles) / (max_particles - math.floor(num_particles))
 
     def add_cell(self, pos, cell_mass, proportion_up):
+        # Updating total cell mass and proportion of upregulated cells first
+        self.up_percentage[pos] = (proportion_up * cell_mass + self.up_percentage[pos] * self.total_cell_mass[pos]) /
+        (cell_mass + self.total_cell_mass[pos])
+        self.total_cell_mass[pos] += cell_mass
+        self.particles[pos].proportion_positive = np.append(self.particles[pos].cell_mass, proportion_up)
+        self.particles[pos].cell_mass = np.append(self.particles[pos].cell_mass, cell_mass)
 
 
 

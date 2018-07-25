@@ -15,7 +15,7 @@ now = datetime.datetime.now()
 bf = classes.Biofilm()
 for pos in bf.get_indicies()[:][:][0].squeeze(axis=(1, 2)):
         for _ in range(10):
-            vortex.add_cell(400 + 400 * random(), 2, 0)
+            bf.add_cell(pos, 400 + 400 * random(), 0)
 
 # print before
 print_fozard("data/before_small.dat", 0)
