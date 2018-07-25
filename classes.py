@@ -3,6 +3,7 @@ import numpy as np
 from numpy.random import random
 import math
 from scipy.integrate import odeint
+import copy
 
 # Files
 from input_file import *  # If there's a variable you cannot find, it's probably here.
@@ -66,6 +67,7 @@ class Biofilm:
             # Updating cell mass
             self._update_mass(pos)
             self._update_quorum(pos)
+            self._update_eps(pos)
 
     def _update_mass(self, pos):
         particle_list = self.particles[pos]
@@ -76,7 +78,9 @@ class Biofilm:
         # Updating the proportion of up-regulated cells. Newly formed cells are down-regulated
         particle_list.proportion_positive = self.total_cell_mass[pos]/(new_cell_mass+self.total_cell_mass[pos])
         # Updates mass according to model
+        self.up_percentage = self.total_cell_mass[pos] / (self.total_cell_mass[pos]+new_cell_mass)
         self.total_cell_mass[pos] += new_cell_mass
+
         particle_list.cell_mass += dt * growth
 
     def _update_quorum(self, pos):
@@ -85,35 +89,26 @@ class Biofilm:
         pu2d = probability_up2down(self.conc_qsm[pos]) * dt
         n_upregulated = biomass_to_cell_count(particle_list.proportion_positive * particle_list.cell_mass)
         n_downregulated = biomass_to_cell_count((1 - particle_list.proportion_positive) * particle_list.cell_mass)
-        success2up = np.random.binomial(n_upregulated, pd2u)
-        success2down = np.random.binomial(n_downregulated, pu2d)
+        success2up = np.random.binomial(n_downregulated, pd2u)
+        success2down = np.random.binomial(n_upregulated, pu2d)
         delta_cell_count = success2up - success2down
         delta_biomass = cell_count_to_biomass(delta_cell_count)
         particle_list.proportion_positive += delta_biomass / particle_list.cell_mass
 
-
-
-
-    def _update_cell(self, pos,debug=False):
-        # Model eating of substrate and switching states (stochastic)
-        # TODO: Speed up "mass" > "index"
-
-        t = time()
-        self._update_mass(pos)
-
-        pd2u = probability_down2up(self.conc_qsm) * dt
-        pu2d = probability_up2down(self.conc_qsm) * dt
-
-        success2up = np.random.binomial(self.cell_down_arr, pd2u)
-        success2down = np.random.binomial(self.cell_up_arr, pu2d)
-
-        if self.get_pos() == [0, 0, 0] and debug:
-            print("_prob", (time() - t) * 3 * 3 * 10)
-
-        for i in np.argwhere(success2up > 0):
-            self.create_up(index=int(i), n=success2up[i])
-        for i in np.argwhere(success2down > 0):
-            self.create_down(index=int(i), n=success2down[i])
+    def _update_eps(self, pos):
+        # Finding number of up- and down-regulated cells
+        cell_up = biomass_to_cell_count(self.total_cell_mass * self.up_percentage)
+        cell_down = biomass_to_cell_count(self.total_cell_mass * (1 - self.up_percentage))
+        # EPS production from bacteria
+        self.eps_amount += dt * (Zed * cell_up + Zeu * cell_down)
+        # If mass surpasses an amount, create particles from that mass
+        # Finding number of new eps particles
+        n_new_eps_particles = self.eps_amount // max_mass_eps
+        # Eps particles are treated the same way as cell particles
+        # the only difference is that their mass is set to zero
+        self.particles[pos].cell_mass = np.concatenate(self.particles[pos].cell_mass, np.zeros(n_new_eps_particles))
+        self.particles[pos].proportion_positive = \
+            np.concatenate(self.particles[pos].proportion_positive, np.zeros(n_new_eps_particles))
 
 
 
@@ -454,6 +449,7 @@ class ParticleList:
 
 
 ### MODELS (Time derivatives)
+
 
 def model_concentration(conc, t, conc_neigh_arr, diffusion_const, production=0):
     # return derivative of concentration
